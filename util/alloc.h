@@ -1,6 +1,6 @@
 /*
  *
- * Copyright (c) 2020 raptor authors.
+ * Copyright (c) 2020 The Raptor Authors. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@
 
 #include <memory>
 #include <type_traits>
+#include <utility>
 
 namespace raptor {
 
