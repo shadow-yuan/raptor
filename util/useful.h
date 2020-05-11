@@ -43,4 +43,4 @@
 #define RAPTOR_MUST_USE_RESULT
 #endif
 
-#endif  // __RAPTOR_UTIL_USEFULL__
+#endif  // __RAPTOR_UTIL_USEFUL__

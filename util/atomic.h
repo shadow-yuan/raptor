@@ -1,4 +1,3 @@
-
 /*
  *
  * Copyright 2017 gRPC authors.
@@ -17,8 +16,8 @@
  *
  */
 
-#ifndef __RAPTOR_UTIL_ATOMIC_H__
-#define __RAPTOR_UTIL_ATOMIC_H__
+#ifndef __RAPTOR_UTIL_ATOMIC__
+#define __RAPTOR_UTIL_ATOMIC__
 
 #include <stdint.h>
 #include <atomic>
@@ -97,6 +96,7 @@ using AtomicInt64  = Atomic<int64_t>;
 using AtomicUInt32 = Atomic<uint32_t>;
 using AtomicUInt64 = Atomic<uint64_t>;
 using AtomicIntptr = Atomic<intptr_t>;
+
 }  // namespace raptor
 
-#endif  // __RAPTOR_UTIL_ATOMIC_H__
+#endif  // __RAPTOR_UTIL_ATOMIC__
