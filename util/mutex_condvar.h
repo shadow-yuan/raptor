@@ -28,28 +28,28 @@ typedef CRITICAL_SECTION raptor_mutex_t;
 typedef CONDITION_VARIABLE raptor_condvar_t;
 
 // mutex
-#define RAPTOR_MUTEX_INIT(m) \
+#define RaptorMutexInit(m) \
     InitializeCriticalSection(m)
 
-#define RAPTOR_MUTEX_LOCK(m) \
+#define RaptorMutexLock(m) \
     EnterCriticalSection(m)
 
-#define RAPTOR_MUTEX_UNLOCK(m) \
+#define RaptorMutexUnlock(m) \
     LeaveCriticalSection(m)
 
-#define RAPTOR_MUTEX_DESTROY(m) \
+#define RaptorMutexDestroy(m) \
     DeleteCriticalSection(m)
 
 // condvar
 
-#define RAPTOR_CONDVAR_INIT(cv) \
+#define RaptorCondVarInit(cv) \
     InitializeConditionVariable(cv)
 
-#define RAPTOR_CONDVAR_DESTROY(cv) (cv)
+#define RaptorCondVarDestroy(cv) (cv)
 
 // Return 1 in timeout, 0 in other cases
 static inline
-int RAPTOR_CONDVAR_WAIT(
+int RaptorCondVarWait(
     raptor_condvar_t* cv, raptor_mutex_t* mutex, int64_t timeout_ms) {
     int timeout = 0;
     if (timeout_ms < 0) {
@@ -60,10 +60,10 @@ int RAPTOR_CONDVAR_WAIT(
     return timeout;
 }
 
-#define RAPTOR_CONDVAR_SIGNAL(cv) \
+#define RaptorCondVarSignal(cv) \
     WakeConditionVariable(cv)
 
-#define RAPTOR_CONDVAR_BROADCAST(cv) \
+#define RaptorCondVarBroadcast(cv) \
     WakeAllConditionVariable(cv)
 
 #else
@@ -74,33 +74,33 @@ int RAPTOR_CONDVAR_WAIT(
 typedef pthread_mutex_t raptor_mutex_t;
 typedef pthread_cond_t  raptor_condvar_t;
 
-#define RAPTOR_MUTEX_INIT(m) \
+#define RaptorMutexInit(m) \
     pthread_mutex_init(m, NULL)
 
-#define RAPTOR_MUTEX_LOCK(m) \
+#define RaptorMutexLock(m) \
     pthread_mutex_lock(m)
 
-#define RAPTOR_MUTEX_UNLOCK(m) \
+#define RaptorMutexUnlock(m) \
     pthread_mutex_unlock(m)
 
-#define RAPTOR_MUTEX_DESTROY(m) \
+#define RaptorMutexDestroy(m) \
     pthread_mutex_destroy(m)
 
 // condvar
 
-#define RAPTOR_CONDVAR_INIT(cv)        \
-    {                                  \
-        pthread_condattr_t attr_;      \
-        pthread_condattr_init(&attr_); \
-        pthread_cond_init(cv, &attr_); \
-    }
+static inline
+void RaptorCondVarInit(raptor_condvar_t* cv) {
+    pthread_condattr_t attr;
+    pthread_condattr_init(&attr);
+    pthread_cond_init(cv, &attr);
+}
 
-#define RAPTOR_CONDVAR_DESTROY(cv) \
+#define RaptorCondVarDestroy(cv) \
     pthread_cond_destroy(cv)
 
 // Return 1 in timeout, 0 in other cases
 static inline
-int RAPTOR_CONDVAR_WAIT(
+int RaptorCondVarWait(
     raptor_condvar_t* cv, raptor_mutex_t* mutex, int64_t timeout_ms) {
     int error = 0;
     if (timeout_ms < 0) {
@@ -108,20 +108,25 @@ int RAPTOR_CONDVAR_WAIT(
     } else {
         struct timeval now;
         gettimeofday(&now, nullptr);
-        now.tv_sec += (timeout_ms / 1000);
-        now.tv_usec += (timeout_ms % 1000) * 1000;
+        now.tv_sec += static_cast<time_t>(timeout_ms / 1000);
+        now.tv_usec += static_cast<long>((timeout_ms % 1000) * 1000);
+        long sec = now.tv_usec / 1000000;
+        if (sec > 0) {
+            now.tv_sec += sec;
+            now.tv_usec -= sec * 1000000;
+        }
         struct timespec abstime;
         abstime.tv_sec = now.tv_sec;
         abstime.tv_nsec = now.tv_usec * 1000;
-        error = pthread_cond_timedwait(cv, mutex, timeout_ms);
+        error = pthread_cond_timedwait(cv, mutex, &abstime);
     }
-    return (err == ETIMEDOUT) ? 1 : 0;
+    return (error == ETIMEDOUT) ? 1 : 0;
 }
 
-#define RAPTOR_CONDVAR_SIGNAL(cv) \
+#define RaptorCondVarSignal(cv) \
     pthread_cond_signal(cv)
 
-#define RAPTOR_CONDVAR_BROADCAST(cv) \
+#define RaptorCondVarBroadcast(cv) \
     pthread_cond_broadcast(cv)
 
 #endif
