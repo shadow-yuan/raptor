@@ -20,6 +20,7 @@
 #define __RAPTOR_LOG__
 
 #include <stdlib.h>
+#include "util/useful.h"
 
 namespace raptor {
 enum class LogLevel : int {
@@ -52,13 +53,13 @@ void LogRestoreDefault();
 } // namespace raptor
 
 #define log_debug(FMT, ...) \
-    raptor::LogFormatPrint(__FILE__, __LINE__, LogLevel::kLogLevelDebug, FMT, ##__VA_ARGS__)
+    raptor::LogFormatPrint(__FILE__, __LINE__, raptor::LogLevel::kLogLevelDebug, FMT, ##__VA_ARGS__)
 
 #define log_info(FMT, ...)  \
-    raptor::LogFormatPrint(__FILE__, __LINE__, LogLevel::kLogLevelInfo,  FMT, ##__VA_ARGS__)
+    raptor::LogFormatPrint(__FILE__, __LINE__, raptor::LogLevel::kLogLevelInfo,  FMT, ##__VA_ARGS__)
 
 #define log_error(FMT, ...) \
-    raptor::LogFormatPrint(__FILE__, __LINE__, LogLevel::kLogLevelError, FMT, ##__VA_ARGS__)
+    raptor::LogFormatPrint(__FILE__, __LINE__, raptor::LogLevel::kLogLevelError, FMT, ##__VA_ARGS__)
 
 #define RAPTOR_ASSERT(x)                       \
 do {                                           \
