@@ -94,7 +94,7 @@ RefCountedPtr<Status> MakeStatusFromStaticString(const char* msg) {
     return MakeRefCounted<Status>(msg);
 }
 
-RefCountedPtr<Status> MakeStatusFromOSError(const char* api) {
+RefCountedPtr<Status> MakeStatusFromPosixError(const char* api) {
     int err = errno;
     char* text = nullptr;
     raptor_asprintf(&text, "%s: %s", api, strerror(err));
@@ -104,8 +104,7 @@ RefCountedPtr<Status> MakeStatusFromOSError(const char* api) {
 }
 
 #ifdef _WIN32
-RefCountedPtr<Status> MakeStatusFromWSAError(int err, const char* api) {
-    int err = WSAGetLastError();
+RefCountedPtr<Status> MakeStatusFromWindowsError(int err, const char* api) {
     char* message = raptor_format_message(err);
 
     char* text = nullptr;

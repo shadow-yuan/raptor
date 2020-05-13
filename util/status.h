@@ -52,18 +52,18 @@ public:
     std::string _message;
 
     friend RefCountedPtr<Status> MakeStatusFromStaticString(const char* msg);
-    friend RefCountedPtr<Status> MakeStatusFromOSError(const char* api);
+    friend RefCountedPtr<Status> MakeStatusFromPosixError(const char* api);
 
 #ifdef _WIN32
-    friend RefCountedPtr<Status> MakeStatusFromWSAError(int err, const char* api);
+    friend RefCountedPtr<Status> MakeStatusFromWindowsError(int err, const char* api);
 #endif
 };
 
 RefCountedPtr<Status> MakeStatusFromStaticString(const char* msg);
-RefCountedPtr<Status> MakeStatusFromOSError(const char* api);
+RefCountedPtr<Status> MakeStatusFromPosixError(const char* api);
 
 #ifdef _WIN32
-RefCountedPtr<Status> MakeStatusFromWSAError(int err, const char* api);
+RefCountedPtr<Status> MakeStatusFromWindowsError(int err, const char* api);
 #endif
 
 template <typename... Args>
@@ -80,8 +80,8 @@ inline RefCountedPtr<Status> MakeStatusFromFormat(Args&&... args) {
 
 }  // namespace raptor
 
-#define RAPTOR_OS_ERROR(api_name) \
-    raptor::MakeStatusFromOSError(api_name)
+#define RAPTOR_POSIX_ERROR(api_name) \
+    raptor::MakeStatusFromPosixError(api_name)
 
 #define RAPTOR_ERROR_FROM_STATIC_STRING(message) \
     raptor::MakeStatusFromStaticString(message)
@@ -90,8 +90,8 @@ inline RefCountedPtr<Status> MakeStatusFromFormat(Args&&... args) {
     raptor::MakeStatusFromFormat(FMT, ##__VA_ARGS__)
 
 #ifdef _WIN32
-#define RAPTOR_WSA_ERROR(err, api_name) \
-    raptor::MakeStatusFromWSAError(err, api_name)
+#define RAPTOR_WINDOWS_ERROR(err, api_name) \
+    raptor::MakeStatusFromWindowsError(err, api_name)
 #endif
 
 using raptor_error = raptor::RefCountedPtr<raptor::Status>;

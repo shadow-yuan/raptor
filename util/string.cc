@@ -76,43 +76,19 @@ int raptor_asprintf(char** strp, const char* format, ...) {
 
 #ifdef _WIN32
 
-#include <tchar.h>
 #include <windows.h>
 
-#if defined UNICODE || defined _UNICODE
-LPTSTR raptor_char_to_tchar(LPCSTR input) {
-    LPTSTR ret;
-    int needed = MultiByteToWideChar(CP_UTF8, 0, input, -1, NULL, 0);
-    if (needed <= 0) return NULL;
-    ret = (LPTSTR)raptor::Malloc((unsigned)needed * sizeof(TCHAR));
-    MultiByteToWideChar(CP_UTF8, 0, input, -1, ret, needed);
-    return ret;
-}
-
-LPSTR raptor_tchar_to_char(LPCTSTR input) {
-    LPSTR ret;
-    int needed = WideCharToMultiByte(CP_UTF8, 0, input, -1, NULL, 0, NULL, NULL);
-    if (needed <= 0) return NULL;
-    ret = (LPSTR)raptor::Malloc((unsigned)needed);
-    WideCharToMultiByte(CP_UTF8, 0, input, -1, ret, needed, NULL, NULL);
-    return ret;
-}
-#else
-LPTSTR raptor_char_to_tchar(LPCTSTR input) { return (LPTSTR)raptor_strdup(input); }
-LPSTR raptor_tchar_to_char(LPCTSTR input) { return (LPSTR)raptor_strdup(input); }
-#endif
-
 char* raptor_format_message(int messageid) {
-    LPTSTR tmessage;
-    char* message;
-    DWORD status = FormatMessage(
+    char* error_text = NULL;
+    // Use MBCS version of FormatMessage to match return value.
+    DWORD status = ::FormatMessageA(
         FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
             FORMAT_MESSAGE_IGNORE_INSERTS,
         NULL, (DWORD)messageid, MAKELANGID(LANG_ENGLISH, SUBLANG_DEFAULT),
-        (LPTSTR)(&tmessage), 0, NULL);
+        reinterpret_cast<char*>(&error_text), 0, NULL);
     if (status == 0) return raptor_strdup("Unable to retrieve error string");
-    message = raptor_tchar_to_char(tmessage);
-    raptor::Free(tmessage);
+    char* message = raptor_strdup(error_text);
+    ::LocalFree(error_text);
     return message;
 }
 
