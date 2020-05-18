@@ -27,6 +27,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -37,5 +38,13 @@ typedef struct sockaddr_in  raptor_sockaddr_in;
 typedef struct in_addr      raptor_in_addr;
 typedef struct sockaddr_in6 raptor_sockaddr_in6;
 typedef struct in6_addr     raptor_in6_addr;
+
+typedef struct {
+#ifdef _WIN32
+    SOCKET fd;
+#else
+    int fd;
+#endif
+} raptor_socket_t;
 
 #endif  // __RAPTOR_CORE_SOCKADDR__

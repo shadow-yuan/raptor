@@ -26,6 +26,8 @@
 
 typedef CRITICAL_SECTION raptor_mutex_t;
 typedef CONDITION_VARIABLE raptor_condvar_t;
+typedef INIT_ONCE raptor_once_t;
+#define RAPTOR_ONCE_INIT INIT_ONCE_STATIC_INIT
 
 // mutex
 #define RaptorMutexInit(m) \
@@ -73,6 +75,8 @@ int RaptorCondVarWait(
 
 typedef pthread_mutex_t raptor_mutex_t;
 typedef pthread_cond_t  raptor_condvar_t;
+typedef pthread_once_t  raptor_once_t;
+#define RAPTOR_ONCE_INIT PTHREAD_ONCE_INIT
 
 #define RaptorMutexInit(m) \
     pthread_mutex_init(m, NULL)
