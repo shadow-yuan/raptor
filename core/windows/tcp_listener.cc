@@ -18,56 +18,77 @@
 
 #include "core/windows/tcp_listener.h"
 #include <string.h>
+#include <memory>
+#include "core/socket_options.h"
 #include "core/socket_util.h"
 #include "util/alloc.h"
 #include "util/list_entry.h"
 #include "util/log.h"
-#include "core/windows/socket_options.h"
 
 namespace raptor {
-struct tcp_listener {
+
+struct ListenerObject {
     list_entry entry;
-    SOCKET listen_fd;
-    SOCKET new_socket;
+    raptor_socket_t listen_fd;
+    raptor_socket_t new_socket;
     int port;
     raptor_dualstack_mode mode;
     uint8_t addr_buffer[(sizeof(raptor_sockaddr_in6) + 16) * 2];
     raptor_resolved_address addr;
     OVERLAPPED overlapped;
-    tcp_listener() {
+    ListenerObject() {
         RAPTOR_LIST_ENTRY_INIT(&entry);
-        listen_fd = 0;
-        new_socket = 0;
+        listen_fd.fd = INVALID_SOCKET;
+        new_socket.fd = INVALID_SOCKET;
         port = 0;
         memset(addr_buffer, 0, sizeof(addr_buffer));
         memset(&addr, 0, sizeof(addr));
         memset(&overlapped, 0, sizeof(overlapped));
     }
+    ~ListenerObject() {
+        if (listen_fd.fd != INVALID_SOCKET) {
+            closesocket(listen_fd.fd);
+        }
+        if (new_socket.fd != INVALID_SOCKET) {
+            closesocket(new_socket.fd);
+        }
+    }
 };
 
 TcpListener::TcpListener(IAcceptor* service)
     : _service(service)
-    , _shutdown(true) {
+    , _shutdown(true)
+    , _threads(nullptr) {
     RAPTOR_LIST_INIT(&_head);
     RaptorMutexInit(&_mutex);
     _AcceptEx = NULL;
-    _GetAcceptExSockAddrs = NULL;
+    _GetAcceptExSockAddrs = nullptr;
+    _max_threads = 0;
 }
 
 TcpListener::~TcpListener() {
+    if (!_shutdown) {
+        Shutdown();
+    }
     RaptorMutexDestroy(&_mutex);
 }
 
-bool TcpListener::Init() {
-    if (!_shutdown) return true;
-    if (!_iocp.create(1)) {
-        return false;
+raptor_error TcpListener::Init(int max_threads) {
+    if (!_shutdown) return RAPTOR_ERROR_FROM_STATIC_STRING("tcp listener has been initialized");
+
+    if (max_threads < 1) {
+        max_threads = 1;
+    }
+    if (!_iocp.create(max_threads)) {
+        return RAPTOR_ERROR_FROM_FORMAT("failed to create iocp object(threads:%d)", max_threads);
     }
 
     _shutdown = false;
+    _max_threads = max_threads;
+    _threads = new Thread[_max_threads];
 
-    for (int i = 0; i < 2; i++) {
-        _thd[i] = Thread("listen",
+    for (int i = 0; i < _max_threads; i++) {
+        _threads[i] = Thread("listen",
             [](void* param) ->void {
                 TcpListener* p = (TcpListener*)param;
                 p->WorkThread();
@@ -75,42 +96,46 @@ bool TcpListener::Init() {
             this);
     }
 
-    return true;
+    log_debug("tcp listener initialization is complete");
+    return RAPTOR_ERROR_NONE;
 }
 
-bool TcpListener::Start() {
-    if (_shutdown) return false;
-    _thd[0].Start();
-    _thd[1].Start();
-    return true;
+raptor_error TcpListener::Start() {
+    if (_shutdown) return RAPTOR_ERROR_FROM_STATIC_STRING("tcp listener not init");
+    for (int i = 0; i < _max_threads; i++) {
+        _threads[i].Start();
+    }
+    return RAPTOR_ERROR_NONE;
 }
 
-bool TcpListener::Shutdown() {
+void TcpListener::Shutdown() {
     if (!_shutdown) {
         _shutdown = true;
         _iocp.post(NULL, &_exit);
-        _thd[0].Join();
-        _thd[1].Join();
+        for (int i = 0; i < _max_threads; i++) {
+            _threads[i].Join();
+        }
 
         RaptorMutexLock(&_mutex);
         list_entry* entry = _head.next;
         while (entry != &_head) {
-            auto obj = reinterpret_cast<tcp_listener*>(entry);
+            auto obj = reinterpret_cast<ListenerObject*>(entry);
             entry = entry->next;
-            closesocket(obj->listen_fd);
             delete obj;
         }
         RAPTOR_LIST_INIT(&_head);
         RaptorMutexUnlock(&_mutex);
+
+        delete[] _threads;
+        _threads = nullptr;
     }
-	return true;
 }
 
 raptor_error TcpListener::AddListeningPort(const raptor_resolved_address* addr) {
     if (_shutdown) return RAPTOR_ERROR_FROM_STATIC_STRING("tcp listener is closed");
 
     raptor_dualstack_mode mode;
-    SOCKET listen_fd = 0;
+    raptor_socket_t listen_fd;
 
     raptor_error e = raptor_create_socket(addr, &listen_fd, &mode);
     if (e != RAPTOR_ERROR_NONE) {
@@ -119,41 +144,38 @@ raptor_error TcpListener::AddListeningPort(const raptor_resolved_address* addr) 
     }
 
     if (!_AcceptEx || !_GetAcceptExSockAddrs) {
-        e = GetExtensionFunction(listen_fd);
+        e = GetExtensionFunction(listen_fd.fd);
         if (e != RAPTOR_ERROR_NONE) {
-            closesocket(listen_fd);
+            closesocket(listen_fd.fd);
             return e;
         }
     }
 
     int port = 0;
-    e = raptor_tcp_server_prepare_socket(listen_fd, addr, &port);
+    e = raptor_tcp_server_prepare_socket(listen_fd, addr, &port, 1);
     if (e != RAPTOR_ERROR_NONE) {
         log_error("Failed to configure socket: %s", e->ToString().c_str());
         return e;
     }
 
     RaptorMutexLock(&_mutex);
-    tcp_listener* node = new tcp_listener;
+    std::unique_ptr<ListenerObject> node(new ListenerObject);
     node->listen_fd = listen_fd;
     node->port = port;
     node->mode = mode;
     node->addr = *addr;
-    if (!_iocp.add(node->listen_fd, node)) {
-        closesocket(listen_fd);
-        delete node;
+    if (!_iocp.add(node->listen_fd.fd, node.get())) {
         RaptorMutexUnlock(&_mutex);
         return RAPTOR_ERROR_FROM_STATIC_STRING("Failed to bind iocp");
     }
-    e = StartAcceptEx(node);
+    e = StartAcceptEx(node.get());
     if(e != RAPTOR_ERROR_NONE) {
-        closesocket(listen_fd);
-        delete node;
         RaptorMutexUnlock(&_mutex);
         return e;
     }
 
     raptor_list_push_back(&_head, &node->entry);
+    node.release();
     RaptorMutexUnlock(&_mutex);
 
     char* addr_string = nullptr;
@@ -203,7 +225,7 @@ raptor_error TcpListener::GetExtensionFunction(SOCKET fd) {
 void TcpListener::WorkThread() {
     while (!_shutdown) {
         DWORD NumberOfBytesTransferred = 0;
-        tcp_listener* CompletionKey = NULL;
+        ListenerObject* CompletionKey = NULL;
         LPOVERLAPPED lpOverlapped = NULL;
         bool ret = _iocp.polling(
             &NumberOfBytesTransferred, (PULONG_PTR)&CompletionKey, &lpOverlapped, INFINITE);
@@ -217,30 +239,34 @@ void TcpListener::WorkThread() {
         }
 
         raptor_resolved_address client;
+        memset(&client, 0, sizeof(client));
         ParsingNewConnectionAddress(CompletionKey, &client);
+
         _service->OnNewConnection(CompletionKey->new_socket, CompletionKey->port, &client);
 
+        CompletionKey->new_socket.fd = INVALID_SOCKET;
         raptor_error e = StartAcceptEx(CompletionKey);
         if(e != RAPTOR_ERROR_NONE){
-            log_error("prepare next accept error");
+            log_error("prepare next accept fd error: %s", e->ToString().c_str());
+            break;
         }
     }
 }
 
-raptor_error TcpListener::StartAcceptEx(struct tcp_listener* sp) {
-    SOCKET sock = INVALID_SOCKET;
-    BOOL success;
+raptor_error TcpListener::StartAcceptEx(struct ListenerObject* sp) {
+    BOOL success = false;
     DWORD addrlen = sizeof(raptor_sockaddr_in6) + 16;
     DWORD bytes_received = 0;
     raptor_error error = RAPTOR_ERROR_NONE;
+    raptor_socket_t sock;
 
-    sock = WSASocket(
+    sock.fd = WSASocket(
         ((raptor_sockaddr*)sp->addr.addr)->sa_family,
         SOCK_STREAM,
         IPPROTO_TCP, NULL, 0,
-        raptor_get_wsa_socket_flags());
+        RAPTOR_WSA_SOCKET_FLAGS);
 
-    if (sock == INVALID_SOCKET) {
+    if (sock.fd == INVALID_SOCKET) {
         error = RAPTOR_WINDOWS_ERROR(WSAGetLastError(), "WSASocket");
         goto failure;
     }
@@ -249,7 +275,7 @@ raptor_error TcpListener::StartAcceptEx(struct tcp_listener* sp) {
     if (error != RAPTOR_ERROR_NONE) goto failure;
 
     /* Start the "accept" asynchronously. */
-    success = _AcceptEx(sp->listen_fd, sock, sp->addr_buffer, 0,
+    success = _AcceptEx(sp->listen_fd.fd, sock.fd, sp->addr_buffer, 0,
                             addrlen, addrlen, &bytes_received,
                             &sp->overlapped);
 
@@ -268,14 +294,14 @@ raptor_error TcpListener::StartAcceptEx(struct tcp_listener* sp) {
     return RAPTOR_ERROR_NONE;
 
 failure:
-    if (sock != INVALID_SOCKET) {
-        closesocket(sock);
+    if (sock.fd != INVALID_SOCKET) {
+        closesocket(sock.fd);
     }
     return error;
 }
 
 void TcpListener::ParsingNewConnectionAddress(
-    const tcp_listener* sp, raptor_resolved_address* client) {
+    const ListenerObject* sp, raptor_resolved_address* client) {
 
     raptor_sockaddr* local = NULL;
     raptor_sockaddr* remote = NULL;

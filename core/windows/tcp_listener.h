@@ -16,42 +16,50 @@
  *
  */
 
-#pragma once
-#include "core/sockaddr.h"
+#ifndef __RAPTOR_CORE_WINDOWS_TCP_LISTENER__
+#define __RAPTOR_CORE_WINDOWS_TCP_LISTENER__
+
 #include "core/windows/iocp.h"
-#include "core/windows/service.h"
+#include "core/service.h"
+#include "core/sockaddr.h"
 #include "util/list_entry.h"
 #include "util/sync.h"
 #include "util/thread.h"
 
 namespace raptor {
-struct tcp_listener;
+
+struct ListenerObject;
+
 class TcpListener final {
 public:
     explicit TcpListener(IAcceptor* service);
     ~TcpListener();
 
-    bool Init();
+    raptor_error Init(int max_threads = 1);
     raptor_error AddListeningPort(const raptor_resolved_address* addr);
-    bool Start();
-    bool Shutdown();
+    raptor_error Start();
+    void Shutdown();
 
 private:
     void WorkThread();
-    raptor_error StartAcceptEx(struct tcp_listener*);
+    raptor_error StartAcceptEx(struct ListenerObject*);
     void ParsingNewConnectionAddress(
-        const tcp_listener* sp, raptor_resolved_address* remote);
+        const ListenerObject* sp, raptor_resolved_address* remote);
 
     raptor_error GetExtensionFunction(SOCKET fd);
 
     IAcceptor* _service;
     bool _shutdown;
+    Thread* _threads;
     list_entry _head;
     Iocp _iocp;
-    Thread _thd[2];
-    raptor_mutex_t _mutex;
+    raptor_mutex_t _mutex;  // for list_entry
     OVERLAPPED _exit;
     LPFN_ACCEPTEX _AcceptEx;
     LPFN_GETACCEPTEXSOCKADDRS _GetAcceptExSockAddrs;
+    int _max_threads;
 };
+
 } // namespace raptor
+
+#endif  // __RAPTOR_CORE_WINDOWS_TCP_LISTENER__
