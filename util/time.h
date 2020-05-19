@@ -38,7 +38,7 @@ int gettimeofday(struct timeval *tp, void *tzp);
 #endif
 
 int64_t GetCurrentMilliseconds();
-
+time_t Now();
 #ifdef __cplusplus
 }
 #endif

@@ -55,7 +55,7 @@ struct ListenerObject {
     }
 };
 
-TcpListener::TcpListener(IAcceptor* service)
+TcpListener::TcpListener(internal::IAcceptor* service)
     : _service(service)
     , _shutdown(true)
     , _threads(nullptr) {
@@ -100,12 +100,12 @@ raptor_error TcpListener::Init(int max_threads) {
     return RAPTOR_ERROR_NONE;
 }
 
-raptor_error TcpListener::Start() {
-    if (_shutdown) return RAPTOR_ERROR_FROM_STATIC_STRING("tcp listener not init");
+bool TcpListener::Start() {
+    if (_shutdown) return false;
     for (int i = 0; i < _max_threads; i++) {
         _threads[i].Start();
     }
-    return RAPTOR_ERROR_NONE;
+    return true;
 }
 
 void TcpListener::Shutdown() {

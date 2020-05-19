@@ -32,12 +32,12 @@ struct ListenerObject;
 
 class TcpListener final {
 public:
-    explicit TcpListener(IAcceptor* service);
+    explicit TcpListener(internal::IAcceptor* service);
     ~TcpListener();
 
     raptor_error Init(int max_threads = 1);
     raptor_error AddListeningPort(const raptor_resolved_address* addr);
-    raptor_error Start();
+    bool Start();
     void Shutdown();
 
 private:
@@ -48,7 +48,7 @@ private:
 
     raptor_error GetExtensionFunction(SOCKET fd);
 
-    IAcceptor* _service;
+    internal::IAcceptor* _service;
     bool _shutdown;
     Thread* _threads;
     list_entry _head;

@@ -42,3 +42,7 @@ int64_t GetCurrentMilliseconds() {
     int64_t ret = tp.tv_sec;
     return ret * 1000 + tp.tv_usec / 1000;
 }
+
+time_t Now() {
+    return time(0);
+}

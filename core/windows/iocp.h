@@ -20,6 +20,17 @@
 #include <winsock2.h>
 
 namespace raptor {
+enum class IocpEventType {
+    kAcceptEvent,
+    kSendEvent,
+    kRecvEvent
+};
+
+typedef struct {
+    OVERLAPPED overlapped;
+    IocpEventType event;
+} OverLappedEx;
+
 class Iocp final {
 public:
     Iocp();

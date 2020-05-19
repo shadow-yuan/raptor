@@ -27,6 +27,8 @@ namespace raptor {
 
 class Slice;
 
+namespace internal {
+
 // accepte
 class IAcceptor {
 public:
@@ -36,9 +38,9 @@ public:
 };
 
 // for epoll
-class IReceiver {
+class IEpollReceiver {
 public:
-    virtual ~IReceiver() {}
+    virtual ~IEpollReceiver() {}
     virtual void OnError(void* ptr) = 0;
     virtual void OnRecvEvent(void* ptr) = 0;
     virtual void OnSendEvent(void* ptr) = 0;
@@ -58,6 +60,7 @@ public:
     virtual void OnClose(ConnectionId cid) = 0;
 };
 
+} // namespace internal
 } // namespace raptor
 
 #endif // __RAPTOR_CORE_SERVICE__

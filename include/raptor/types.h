@@ -29,10 +29,12 @@ typedef uint64_t ConnectionId;
 typedef uint64_t raptor_connection_t;
 
 typedef struct {
-    int max_connections;
-    int send_recv_timeout;
-    int send_recv_threads;
-    int accept_threads;
+    uint16_t max_connections;
+    uint16_t send_recv_timeout;
+    uint16_t connection_timeout;
+    uint16_t max_package_per_second;
+    uint16_t send_recv_threads;
+    uint16_t accept_threads;
 } raptor_options_t;
 
 typedef raptor_options_t RaptorOptions;

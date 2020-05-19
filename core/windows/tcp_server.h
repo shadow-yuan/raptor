@@ -16,61 +16,77 @@
  *
  */
 #pragma once
+#include <stdint.h>
 #include <memory>
 #include <string>
-#include <vector>
 
-#include "core/acceptor.h"
 #include "core/resolve_address.h"
-#include "core/iocp/iocp.h"
-#include "core/iocp/tcp_listener.h"
+#include "core/windows/iocp.h"
+#include "core/windows/tcp_listener.h"
 #include "core/cid.h"
-#include "core/iocp/connection.h"
-#include "core/sync.h"
-#include "core/thread.h"
-#include "core/status.h"
-#include "raptor/notification.h"
-#include "raptor/types.h"
+#include "core/connection_list.h"
+#include "core/windows/connection.h"
+#include "core/mpscq.h"
+
+#include "util/sync.h"
+#include "util/thread.h"
+#include "util/status.h"
+#include "raptor/service.h"
 
 namespace raptor {
+class Slice;
+class TcpListener;
 
-class TcpServer : public IAcceptor, public internal::ITransferService {
+class TcpServer : public internal::IAcceptor
+                , public internal::IMessageTransfer
+                , public IRaptorServerMessage {
 public:
-    TcpServer(IRaptorServerEvent *service);
+    TcpServer(IRaptorServerMessage *service);
     ~TcpServer();
 
     raptor_error Init(const RaptorOptions* options);
     raptor_error AddListening(const std::string& addr);
     raptor_error Start();
-    raptor_error Shutdown();
+    void Shutdown();
 
-    raptor_error Send(ConnectionId cid, const void* buf, size_t len);
-    raptor_error CloseConnection(ConnectionId cid);
+    bool Send(ConnectionId cid, const void* buf, size_t len);
+    bool CloseConnection(ConnectionId cid);
 
-    // IAcceptor impl
+    // internal::IAcceptor impl
     void OnNewConnection(
-        SOCKET fd, int32_t listen_port,
+        raptor_socket_t sock, int listen_port,
         const raptor_resolved_address* addr) override;
 
-    //ITransferService impl
-    void OnMessage(ConnectionId cid, const Slice& s) override;
+    // internal::IMessageTransfer impl
+    void OnMessage(ConnectionId cid, const Slice* s) override;
     void OnClose(ConnectionId cid) override;
 
+    // IRaptorServerMessage impl
+    void OnConnected(ConnectionId cid) override;
+    void OnMessageReceived(ConnectionId cid, const void* s, size_t len) override;
+    void OnClosed(ConnectionId cid) override;
+
     // user data
-    raptor_error SetUserData(ConnectionId id, void* userdata);
-    raptor_error GetUserData(ConnectionId id, void** userdata);
+    void SetUserData(ConnectionId id, void* userdata);
+    void* GetUserData(ConnectionId id);
 
 private:
     void WorkThread();
+    void TimeoutCheckThread();
 
-    /* data */
+    void InitConnectionList();
+    void InitTimeoutThread();
+    void InitWorkThread();
+
+    IRaptorServerMessage* _service;
     bool _shutdown;
+    Thread* _rs_threads;
+    RaptorOptions _options;
     Iocp _iocp;
-    Mutex _mtx; // for _mgr
-    std::vector<std::shared_ptr<Connection>> _mgr;
     std::shared_ptr<TcpListener> _listener;
-    Thread _thd;
+    std::shared_ptr<ConnectionList> _conn_list;
+    MultiProducerSingleConsumerQueue _mpscq;
+    Thread _timeout_threads;
     OVERLAPPED _exit;
-    IRaptorServerEvent* _service;
 };
 } // namespace raptor

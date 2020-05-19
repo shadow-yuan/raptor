@@ -15,170 +15,216 @@
  * limitations under the License.
  *
  */
-#include "core/iocp/tcp_server.h"
+#include "core/windows/tcp_server.h"
 #include "util/alloc.h"
+#include "util/cpu.h"
 
 namespace raptor {
 
-struct tcp_server {
-    ConnectionId cid;
-    raptor_resolved_address addr;
-    OVERLAPPED overlapped;
-    tcp_server() {
-        cid = 0;
-        memset(&addr, 0, sizeof(addr));
-        memset(&overlapped, 0, sizeof(overlapped));
-    }
-};
-
-TcpServer::TcpServer(IRaptorServerEvent *service)
-    : _service(service) {
+TcpServer::TcpServer(IRaptorServerMessage *service)
+    : _service(service)
+    , _shutdown(true)
+    , _rs_threads(nullptr) {
 }
 
-TcpServer::~TcpServer() {}
+TcpServer::~TcpServer() {
+    if (!_shutdown) {
+        Shutdown();
+    }
+}
 
 raptor_error TcpServer::Init(const RaptorOptions* options){
     if (!_shutdown) {
         return RAPTOR_ERROR_FROM_STATIC_STRING("tcp server already running");
     }
 
-    if (!_iocp.create(0)) {
-        return RAPTOR_WSA_ERROR("CreateIoCompletionPort");
+    _options = *options;
+
+    size_t kernel_threads = 0;
+    size_t cpu_cores = (size_t)raptor_get_number_of_cpu_cores();
+
+    if (_options.send_recv_threads == 0) {  // default
+        _options.send_recv_threads = 1;
+        kernel_threads = 2;
+    } else if (_options.send_recv_threads > cpu_cores) {
+        _options.send_recv_threads = cpu_cores;
+        kernel_threads = 0;
+    } else {
+        kernel_threads = _options.send_recv_threads;
+    }
+
+    if (!_iocp.create(kernel_threads)) {
+        return RAPTOR_WINDOWS_ERROR(WSAGetLastError(), "CreateIoCompletionPort");
+    }
+
+    if (_options.accept_threads > cpu_cores) {
+        _options.accept_threads = cpu_cores / 2;
+    }
+    if (_options.accept_threads == 0) {
+        _options.accept_threads = 1;
+    }
+
+    _listener = std::make_shared<TcpListener>(this);
+    auto e = _listener->Init(_options.accept_threads);
+    if (e != RAPTOR_ERROR_NONE) {
+        return e;
     }
 
     _shutdown = false;
 
-    _thd = Thread("server",
-        [](void* param) ->void {
-            TcpServer* p = (TcpServer*)param;
-            p->WorkThread();
-        },
-        this);
+    InitConnectionList();
+    InitTimeoutThread();
+    InitWorkThread();
 
     return RAPTOR_ERROR_NONE;
 }
 
 raptor_error TcpServer::AddListening(const std::string& addr){
+    if (_shutdown) return RAPTOR_ERROR_FROM_STATIC_STRING("tcp server uninitialized");
+    if (addr.empty()) return RAPTOR_ERROR_FROM_STATIC_STRING("invalid listening address");
+    raptor_resolved_addresses* addrs;
+    auto ret = raptor_blocking_resolve_address(addr.c_str(), nullptr, &addrs);
+    if (ret != RAPTOR_ERROR_NONE) {
+        return ret;
+    }
 
-    return RAPTOR_ERROR_NONE;
-}
-
-raptor_error TcpServer::Start(){
-    _thd.Start();
-    return RAPTOR_ERROR_NONE;
-}
-
-raptor_error TcpServer::Shutdown(){
-if (!_shutdown) {
-        _shutdown = true;
-        _iocp.post(NULL, &_exit);
-        _thd.Join();
-
-        for(auto ite = _mgr.begin(); ite != _mgr.end(); ite++){
-            if((*ite).get()){
-                (*ite)->Shutdown(true);
+    for (size_t i = 0; i < addrs->naddrs; i++) {
+        auto err = _listener->AddListeningPort(&addrs->addrs[i]);
+        if (err != RAPTOR_ERROR_NONE) {
+            if (ret != RAPTOR_ERROR_NONE) {
+                ret->AppendMessage(err->ToString());
+            } else {
+                ret = err;
             }
         }
     }
+    raptor_resolved_addresses_destroy(addrs);
+    return ret;
+}
+
+raptor_error TcpServer::Start() {
+    if (!_listener->Start()) {
+        return RAPTOR_ERROR_FROM_STATIC_STRING("failed to start listener");
+    }
+    _timeout_threads.Start();
+    for (uint16_t i = 0; i < _options.send_recv_threads; i++) {
+        _rs_threads[i].Start();
+    }
     return RAPTOR_ERROR_NONE;
 }
 
-raptor_error TcpServer::Send(ConnectionId cid, const void* buf, size_t len){
+void TcpServer::Shutdown(){
+    if (!_shutdown) {
+        _shutdown = true;
+        _iocp.post(NULL, &_exit);
+        _timeout_threads.Join();
+        for (uint16_t i = 0; i < _options.send_recv_threads; i++) {
+            _rs_threads[i].Join();
+        }
+    }
+}
 
-    if(!_mgr[cid].get()){
+bool TcpServer::Send(ConnectionId cid, const void* buf, size_t len) {
+    if (cid == core::InvalidConnectionId) {
+        return false;
     }
 
-    _mgr[cid]->Send(buf,len);
-    return RAPTOR_ERROR_NONE;
+    auto conn = _conn_list->GetConnection(cid);
+    if (conn) {
+        conn->Send(buf, len);
+    }
+    return true;
 }
 
-raptor_error TcpServer::CloseConnection(ConnectionId cid){
-    if(!_mgr[cid].get()){
+bool TcpServer::CloseConnection(ConnectionId cid){
+    if (cid == core::InvalidConnectionId) {
+        return false;
     }
 
-    _mgr[cid]->Shutdown(true);
-    return RAPTOR_ERROR_NONE;
+    auto conn = _conn_list->GetConnection(cid);
+    if (conn) {
+        conn->Shutdown(false);
+        _conn_list->Remove(cid);
+    }
+    return true;
 }
 
+// internal::IAcceptor impl
 void TcpServer::OnNewConnection(
-    SOCKET fd, int32_t listen_port,
+    raptor_socket_t sock, int listen_port,
     const raptor_resolved_address* addr) {
-
-    ConnectionId connId = _mgr.size();
-    std::shared_ptr<Connection> ptrConn =  std::make_shared<Connection>(this,  connId);
-    ptrConn->Init(fd, addr);
-
-    tcp_server* node = new tcp_server;
-    node->addr = *addr;
-    node->cid = connId;
-    if (!_iocp.add(fd, node)) {
-        closesocket(fd);
-        return ;
-    }
-
-    _mtx.Lock();
-    _mgr.push_back(ptrConn);
-    _mtx.Unlock();
-
-    _service->OnConnected(connId);
-
+    time_t timeout_time = Now() + _options.connection_timeout;
+    std::unique_ptr<Connection> conn(new Connection(this));
+    uint32_t uid = _conn_list->GetUniqueId();
+    uint16_t magic = _conn_list->GetMagicNumber();
+    ConnectionId cid = core::BuildConnectionId(magic, listen_port, uid);
+    conn->Init(cid, sock, addr);
+    _conn_list->Add(conn.release(), timeout_time);
 }
 
-
-void TcpServer::OnMessage(ConnectionId cid, const Slice& s){
-
-   _service->OnDataReceived(cid,s.begin(),s.Length());
+// IRaptorServerMessage impl
+void TcpServer::OnMessage(ConnectionId cid, const Slice* s){
 
 }
-
 
 void TcpServer::OnClose(ConnectionId cid) {
-    if(_mgr[cid].get()){
-        _mgr[cid].reset();
-    }
-
-    _service->OnClosed(cid);
 
 }
 
-void GetMessage(){
 
+// IRaptorServerMessage impl
+void TcpServer::OnConnected(ConnectionId cid) {
+
+}
+
+void TcpServer::OnMessageReceived(ConnectionId cid, const void* s, size_t len) {
+
+}
+
+void TcpServer::OnClosed(ConnectionId cid) {
+
+}
+
+void TcpServer::InitTimeoutThread() {
+    _timeout_threads = Thread("timeout-check",
+        [](void* param) ->void {
+            TcpServer* p = (TcpServer*)param;
+            p->TimeoutCheckThread();
+        },
+        this);
+}
+
+void TcpServer::InitWorkThread() {
+    _rs_threads = new Thread[_options.send_recv_threads];
+    for (uint16_t i = 0; i < _options.send_recv_threads; i++) {
+        _rs_threads[i] = Thread("rs-thread",
+            [](void* param) ->void {
+                TcpServer* p = (TcpServer*)param;
+                p->WorkThread();
+            },
+            this);
+    }
 }
 
 void TcpServer::WorkThread(){
     while (!_shutdown) {
-        DWORD NumberOfBytesTransferred = 0;
-        tcp_server* CompletionKey = NULL;
-        LPOVERLAPPED lpOverlapped = NULL;
-        bool ret = _iocp.polling(
-            &NumberOfBytesTransferred, (PULONG_PTR)&CompletionKey, &lpOverlapped, INFINITE);
-
-        if (!ret) {
-            continue;
-        }
-
-        if(lpOverlapped == &_exit) {  // shutdown
-            break;
-        }
-
-        internal::OverLappedEx *lpoverlappedEx = (internal::OverLappedEx *)lpOverlapped;
-
-        if(lpoverlappedEx->event == internal::EventType::kSendEvent){
-            _mgr[CompletionKey->cid]->OnSendEvent(NumberOfBytesTransferred);
-        }
-        else if(lpoverlappedEx->event == internal::EventType::kRecvEvent){
-            _mgr[CompletionKey->cid]->OnRecvEvent(NumberOfBytesTransferred);
-
-        }
 
     }
 }
 
-raptor_error TcpServer::SetUserData(ConnectionId id, void* userdata) {
-    return RAPTOR_ERROR_NONE;
+void TcpServer::SetUserData(ConnectionId cid, void* userdata) {
+    auto conn = _conn_list->GetConnection(cid);
+    if (conn) {
+        conn->SetUserData(userdata, userdata);
+    }
 }
-raptor_error TcpServer::GetUserData(ConnectionId id, void** userdata) {
-    return RAPTOR_ERROR_NONE;
+
+void* TcpServer::GetUserData(ConnectionId cid) {
+    auto conn = _conn_list->GetConnection(cid);
+    if (conn) {
+        return conn->GetUserData(userdata);
+    }
+    return nullptr;
 }
 
 } // namespace raptor
