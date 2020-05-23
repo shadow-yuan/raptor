@@ -1,8 +1,8 @@
 /*
  *
- * Copyright 2015 gRPC authors.
+ * Copyright 2015 gRPC authofd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
+ * Licensed under the Apache License, Vefdion 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
@@ -23,45 +23,44 @@
 #include "core/sockaddr.h"
 #include "util/status.h"
 
-#ifdef _WIN32
 #ifndef WSA_FLAG_NO_HANDLE_INHERIT
 #define WSA_FLAG_NO_HANDLE_INHERIT 0X80
 #endif
+
 constexpr DWORD RAPTOR_WSA_SOCKET_FLAGS = WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT;
-#endif
 
 void raptor_global_socket_init();
 void raptor_global_socket_shutdown();
 
 /* set a socket to non blocking mode */
-raptor_error raptor_set_socket_nonblocking(raptor_socket_t fd, int non_blocking);
+raptor_error raptor_set_socket_nonblocking(SOCKET fd, int non_blocking);
 
 /* set a socket to close on exec */
-raptor_error raptor_set_socket_cloexec(raptor_socket_t fd, int close_on_exec);
+raptor_error raptor_set_socket_cloexec(SOCKET fd, int close_on_exec);
 
 /* enable or disable nagle */
-raptor_error raptor_set_socket_low_latency(raptor_socket_t fd, int low_latency);
+raptor_error raptor_set_socket_low_latency(SOCKET fd, int low_latency);
 
 /* set a socket to reuse old addresses */
-raptor_error raptor_set_socket_reuse_addr(raptor_socket_t fd, int reuse);
+raptor_error raptor_set_socket_reuse_addr(SOCKET fd, int reuse);
 
 /* set the socket's send timeout to given timeout. */
-raptor_error raptor_set_socket_snd_timeout(raptor_socket_t fd, int timeout_ms);
+raptor_error raptor_set_socket_snd_timeout(SOCKET fd, int timeout_ms);
 
 /* set the socket's receive timeout to given timeout. */
-raptor_error raptor_set_socket_rcv_timeout(raptor_socket_t fd, int timeout_ms);
+raptor_error raptor_set_socket_rcv_timeout(SOCKET fd, int timeout_ms);
 
 /* set the socket's IPV6_Only. */
-raptor_error raptor_set_socket_ipv6_only(raptor_socket_t fd, int only);
+raptor_error raptor_set_socket_ipv6_only(SOCKET fd, int only);
 
 // shutdown fd
-void raptor_set_socket_shutdown(raptor_socket_t fd);
+void raptor_set_socket_shutdown(SOCKET fd);
 
 /* Set TCP_USER_TIMEOUT */
-raptor_error raptor_set_socket_tcp_user_timeout(raptor_socket_t rs, int timeout);
+raptor_error raptor_set_socket_tcp_user_timeout(SOCKET fd, int timeout);
 
 // Tries to set SO_NOSIGPIPE if available on this platform
-raptor_error raptor_set_socket_no_sigpipe_if_possible(raptor_socket_t rs);
+raptor_error raptor_set_socket_no_sigpipe_if_possible(SOCKET fd);
 
 typedef enum raptor_dualstack_mode {
     /* Uninitialized, or a non-IP socket. */
@@ -76,16 +75,16 @@ typedef enum raptor_dualstack_mode {
 
 raptor_error raptor_create_dualstack_socket(
     const raptor_resolved_address* resolved_addr,
-    int type, int protocol, raptor_dualstack_mode* dsmode, raptor_socket_t* newfd);
+    int type, int protocol, raptor_dualstack_mode* dsmode, SOCKET* newfd);
 
 raptor_error raptor_create_socket(
     const raptor_resolved_address* resolved_addr,
-    raptor_socket_t* newfd, raptor_dualstack_mode* dsmode);
+    SOCKET* newfd, raptor_dualstack_mode* dsmode);
 
-raptor_error raptor_tcp_prepare_socket(raptor_socket_t sock);
+raptor_error raptor_tcp_prepare_socket(SOCKET sock);
 
 raptor_error raptor_tcp_server_prepare_socket(
-                        raptor_socket_t sock,
+                        SOCKET sock,
                         const raptor_resolved_address* addr,
                         int* port, int so_reuseport);
 

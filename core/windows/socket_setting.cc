@@ -16,14 +16,13 @@
  *
  */
 
-#include "core/socket_options.h"
+#include "core/windows/socket_setting.h"
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <limits.h>
 #include <signal.h>
 #include <string.h>
-
 #include "core/sockaddr.h"
 #include "core/socket_util.h"
 #include "util/alloc.h"
@@ -45,24 +44,24 @@ void raptor_global_socket_shutdown() {
 }
 
 /* set a socket to non blocking mode */
-raptor_error raptor_set_socket_nonblocking(raptor_socket_t rs, int non_blocking) {
+raptor_error raptor_set_socket_nonblocking(SOCKET fd, int non_blocking) {
     uint32_t param = 1;
     DWORD BytesReturned;
-    int status = WSAIoctl(rs.fd, FIONBIO, &param, sizeof(param), NULL, 0, &BytesReturned,
+    int status = WSAIoctl(fd, FIONBIO, &param, sizeof(param), NULL, 0, &BytesReturned,
                     NULL, NULL);
     return status == 0
                 ? RAPTOR_ERROR_NONE
                 : RAPTOR_WINDOWS_ERROR(WSAGetLastError(), "WSAIoctl(FIONBIO)");
 }
 
-raptor_error raptor_set_socket_cloexec(raptor_socket_t rs, int close_on_exec) {
+raptor_error raptor_set_socket_cloexec(SOCKET fd, int close_on_exec) {
     return RAPTOR_ERROR_NONE;
 }
 
 /* set a socket to reuse old addresses */
-raptor_error raptor_set_socket_reuse_addr(raptor_socket_t rs, int reuse) {
+raptor_error raptor_set_socket_reuse_addr(SOCKET fd, int reuse) {
     int val = (reuse) ? 1 : 0;
-    int status = setsockopt(rs.fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&val, sizeof(val));
+    int status = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&val, sizeof(val));
 
     return status == 0
             ? RAPTOR_ERROR_NONE
@@ -70,10 +69,10 @@ raptor_error raptor_set_socket_reuse_addr(raptor_socket_t rs, int reuse) {
 }
 
 /* disable nagle */
-raptor_error raptor_set_socket_low_latency(raptor_socket_t rs, int low_latency) {
+raptor_error raptor_set_socket_low_latency(SOCKET fd, int low_latency) {
     int val = low_latency ? 1 : 0;
     int status = setsockopt(
-            rs.fd, IPPROTO_TCP, TCP_NODELAY, (const char*)&val, sizeof(val));
+            fd, IPPROTO_TCP, TCP_NODELAY, (const char*)&val, sizeof(val));
 
     return status == 0
             ? RAPTOR_ERROR_NONE
@@ -82,38 +81,38 @@ raptor_error raptor_set_socket_low_latency(raptor_socket_t rs, int low_latency) 
 
 
 /* set a socket to reuse old addresses */
-raptor_error raptor_set_socket_reuse_port(raptor_socket_t rs, int reuse) {
-    (void)rs;
+raptor_error raptor_set_socket_reuse_port(SOCKET fd, int reuse) {
+    (void)fd;
     (void)reuse;
     return RAPTOR_ERROR_NONE;
 }
 
-raptor_error raptor_set_socket_snd_timeout(raptor_socket_t rs, int timeout_ms) {
+raptor_error raptor_set_socket_snd_timeout(SOCKET fd, int timeout_ms) {
     struct timeval tv;
     tv.tv_sec = timeout_ms / 1000;
     tv.tv_usec = (timeout_ms - (tv.tv_sec * 1000)) * 1000;
-    int status = setsockopt(rs.fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
+    int status = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
 
     return status == 0
             ? RAPTOR_ERROR_NONE
             : RAPTOR_WINDOWS_ERROR(WSAGetLastError(), "setsockopt(SO_SNDTIMEO)");
 }
 
-raptor_error raptor_set_socket_rcv_timeout(raptor_socket_t rs, int timeout_ms) {
+raptor_error raptor_set_socket_rcv_timeout(SOCKET fd, int timeout_ms) {
     struct timeval tv;
     tv.tv_sec = timeout_ms / 1000;
     tv.tv_usec = (timeout_ms - (tv.tv_sec * 1000)) * 1000;
-    int status = setsockopt(rs.fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+    int status = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
     return status == 0
             ? RAPTOR_ERROR_NONE
             : RAPTOR_WINDOWS_ERROR(WSAGetLastError(), "setsockopt(SO_RCVTIMEO)");
 }
 
-raptor_error raptor_set_socket_ipv6_only(raptor_socket_t rs, int only) {
+raptor_error raptor_set_socket_ipv6_only(SOCKET fd, int only) {
     int on_off = only ? 1 : 0;
     int status = setsockopt(
-            rs.fd, IPPROTO_IPV6, IPV6_V6ONLY,
+            fd, IPPROTO_IPV6, IPV6_V6ONLY,
             (const char*)&on_off, sizeof(on_off));
 
     return status == 0
@@ -121,45 +120,45 @@ raptor_error raptor_set_socket_ipv6_only(raptor_socket_t rs, int only) {
             : RAPTOR_WINDOWS_ERROR(WSAGetLastError(), "setsockopt(IPV6_V6ONLY)");
 }
 
-void raptor_set_socket_shutdown(raptor_socket_t rs) {
+void raptor_set_socket_shutdown(SOCKET fd) {
     GUID guid = WSAID_DISCONNECTEX;
     LPFN_DISCONNECTEX DisconnectEx;
     DWORD ioctl_num_bytes;
 
-    int status = WSAIoctl(rs.fd, SIO_GET_EXTENSION_FUNCTION_POINTER,
+    int status = WSAIoctl(fd, SIO_GET_EXTENSION_FUNCTION_POINTER,
                     &guid, sizeof(guid), &DisconnectEx, sizeof(DisconnectEx),
                     &ioctl_num_bytes, NULL, NULL);
 
     if (status == 0) {
-        DisconnectEx(rs.fd, NULL, 0, 0);
+        DisconnectEx(fd, NULL, 0, 0);
     } else {
         char* message = raptor_format_message(WSAGetLastError());
         log_info("Unable to retrieve DisconnectEx pointer : %s", message);
         raptor::Free(message);
     }
-    closesocket(rs.fd);
+    closesocket(fd);
 }
 
-raptor_error raptor_set_socket_tcp_user_timeout(raptor_socket_t rs, int timeout) {
+raptor_error raptor_set_socket_tcp_user_timeout(SOCKET fd, int timeout) {
     return RAPTOR_ERROR_NONE;
 }
 
-raptor_error raptor_set_socket_no_sigpipe_if_possible(raptor_socket_t rs) {
+raptor_error raptor_set_socket_no_sigpipe_if_possible(SOCKET fd) {
 #ifdef SO_NOSIGPIPE
     int val = 1;
     int newval;
     socklen_t intlen = sizeof(newval);
-    if (0 != setsockopt(rs.fd, SOL_SOCKET, SO_NOSIGPIPE, &val, sizeof(val))) {
+    if (0 != setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &val, sizeof(val))) {
         return RAPTOR_POSIX_ERROR("setsockopt(SO_NOSIGPIPE)");
     }
-    if (0 != getsockopt(rs.fd, SOL_SOCKET, SO_NOSIGPIPE, &newval, &intlen)) {
+    if (0 != getsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &newval, &intlen)) {
         return RAPTOR_POSIX_ERROR("getsockopt(SO_NOSIGPIPE)");
     }
     if ((newval != 0) != (val != 0)) {
         return RAPTOR_ERROR_FROM_STATIC_STRING("Failed to set SO_NOSIGPIPE");
     }
 #else
-    (void)rs;
+    (void)fd;
 #endif
     return RAPTOR_ERROR_NONE;
 }
@@ -170,35 +169,35 @@ static inline SOCKET ws2_socket(int family, int type, int protocol) {
 
 raptor_error raptor_create_dualstack_socket(
     const raptor_resolved_address* resolved_addr,
-    int type, int protocol, raptor_dualstack_mode* dsmode, raptor_socket_t* newfd) {
+    int type, int protocol, raptor_dualstack_mode* dsmode, SOCKET* newfd) {
     const raptor_sockaddr* addr =
         reinterpret_cast<const raptor_sockaddr*>(resolved_addr->addr);
     int family = addr->sa_family;
     if (family == AF_INET6) {
-        newfd->fd = ws2_socket(family, type, protocol);
+        *newfd = ws2_socket(family, type, protocol);
 
         /* Check if we've got a valid dualstack socket. */
-        if (newfd->fd != INVALID_SOCKET && raptor_set_socket_ipv6_only(*newfd, 0) == RAPTOR_ERROR_NONE) {
+        if (*newfd != INVALID_SOCKET && raptor_set_socket_ipv6_only(*newfd, 0) == RAPTOR_ERROR_NONE) {
             *dsmode = RAPTOR_DSMODE_DUALSTACK;
             return RAPTOR_ERROR_NONE;
         }
         /* If this isn't an IPv4 address, then return whatever we've got. */
         if (!raptor_sockaddr_is_v4mapped(resolved_addr, nullptr)) {
             *dsmode = RAPTOR_DSMODE_IPV6;
-            if (newfd->fd == INVALID_SOCKET) {
+            if (*newfd == INVALID_SOCKET) {
                 return RAPTOR_WINDOWS_ERROR(WSAGetLastError(), "WSASocket");
             }
             return RAPTOR_ERROR_NONE;
         }
         /* Fall back to AF_INET. */
-        if (newfd->fd != INVALID_SOCKET) {
-            closesocket(newfd->fd);
+        if (*newfd != INVALID_SOCKET) {
+            closesocket(*newfd);
         }
         family = AF_INET;
     }
     *dsmode = (family == AF_INET) ? RAPTOR_DSMODE_IPV4 : RAPTOR_DSMODE_NONE;
-    newfd->fd = ws2_socket(family, type, protocol);
-    if (newfd->fd == INVALID_SOCKET) {
+    *newfd = ws2_socket(family, type, protocol);
+    if (*newfd == INVALID_SOCKET) {
         return RAPTOR_WINDOWS_ERROR(WSAGetLastError(), "WSASocket");
     }
     return RAPTOR_ERROR_NONE;
@@ -206,7 +205,7 @@ raptor_error raptor_create_dualstack_socket(
 
 raptor_error raptor_create_socket(
     const raptor_resolved_address* addr,
-    raptor_socket_t* newfd, raptor_dualstack_mode* dsmode) {
+    SOCKET* newfd, raptor_dualstack_mode* dsmode) {
 
     raptor_resolved_address addr6_v4mapped;
     raptor_resolved_address wildcard;
@@ -222,10 +221,10 @@ raptor_error raptor_create_socket(
         addr = &wildcard;
     }
 
-    return raptor_create_dualstack_socket(addr, SOCK_STREAM, IPPROTO_TCP, dsmode, newfd);
+    return raptor_create_dualstack_socket(addr, SOCK_STREAM, static_cast<int>(IPPROTO_TCP), dsmode, newfd);
 }
 
-raptor_error raptor_tcp_prepare_socket(raptor_socket_t sock) {
+raptor_error raptor_tcp_prepare_socket(SOCKET sock) {
     raptor_error err;
     err = raptor_set_socket_nonblocking(sock, 1);
     if (err != RAPTOR_ERROR_NONE) return err;
@@ -237,7 +236,7 @@ raptor_error raptor_tcp_prepare_socket(raptor_socket_t sock) {
 }
 
 raptor_error raptor_tcp_server_prepare_socket(
-    raptor_socket_t sock, const raptor_resolved_address* addr, int* port, int so_reuseport) {
+    SOCKET sock, const raptor_resolved_address* addr, int* port, int so_reuseport) {
 
     raptor_resolved_address sockname_temp;
     raptor_error error = RAPTOR_ERROR_NONE;
@@ -250,18 +249,18 @@ raptor_error raptor_tcp_server_prepare_socket(
         goto failure;
     }
 
-    if (bind(sock.fd, (const raptor_sockaddr*)addr->addr, (int)addr->len) == SOCKET_ERROR) {
+    if (bind(sock, (const raptor_sockaddr*)addr->addr, (int)addr->len) == SOCKET_ERROR) {
         error = RAPTOR_WINDOWS_ERROR(WSAGetLastError(), "bind");
         goto failure;
     }
 
-    if (listen(sock.fd, SOMAXCONN) == SOCKET_ERROR) {
+    if (listen(sock, SOMAXCONN) == SOCKET_ERROR) {
         error = RAPTOR_WINDOWS_ERROR(WSAGetLastError(), "listen");
         goto failure;
     }
 
     sockname_temp_len = sizeof(struct sockaddr_storage);
-    if (getsockname(sock.fd, (raptor_sockaddr*)sockname_temp.addr,
+    if (getsockname(sock, (raptor_sockaddr*)sockname_temp.addr,
                     &sockname_temp_len) == SOCKET_ERROR) {
         error = RAPTOR_WINDOWS_ERROR(WSAGetLastError(), "getsockname");
         goto failure;
@@ -271,8 +270,8 @@ raptor_error raptor_tcp_server_prepare_socket(
     return RAPTOR_ERROR_NONE;
 
 failure:
-    if (sock.fd != INVALID_SOCKET) {
-        closesocket(sock.fd);
+    if (sock != INVALID_SOCKET) {
+        closesocket(sock);
     }
     return error;
 }
