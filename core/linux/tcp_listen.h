@@ -26,27 +26,32 @@
 #include "util/thread.h"
 
 namespace raptor {
-struct tcp_listener;
+struct ListenerObject;
 class TcpListener final {
 public:
-    explicit TcpListener(Acceptor* cp);
+    explicit TcpListener(internal::IAcceptor* cp);
     ~TcpListener();
 
     RefCountedPtr<Status>
         Init();
     RefCountedPtr<Status>
-        AddListeningPort(const p2p_resolved_address* addr);
+        AddListeningPort(const raptor_resolved_address* addr);
     bool StartListening();
     void Shutdown();
 
 private:
     void DoPolling();
     void ProcessEpollEvents(void* ptr, uint32_t events);
+    int AcceptEx(
+        int fd,
+        raptor_resolved_address* addr,
+        int nonblock, int cloexec);
+
+    internal::IAcceptor* _acceptor; //not owned it
+    bool _shutdown;
 
     Thread _thd;
-    poller _epoll;
-    bool _shutdown;
-    Acceptor* _acceptor; //not owned it
+    Epoll _epoll;
     list_entry _head;
     Mutex _mtex;
 };

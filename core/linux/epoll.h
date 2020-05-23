@@ -21,6 +21,7 @@
 
 #include <sys/epoll.h>
 #include <stddef.h>
+#include "util/status.h"
 
 namespace raptor {
 class Epoll final {
@@ -28,7 +29,7 @@ public:
     Epoll();
     ~Epoll();
 
-    int create();
+    RefCountedPtr<Status> create();
     int add(int fd, void* data, uint32_t events);
     int modify(int fd, void* data, uint32_t events);
     int remove(int fd, uint32_t events);

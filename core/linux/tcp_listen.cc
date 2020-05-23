@@ -22,11 +22,12 @@
 #include "core/socket_util.h"
 #include "util/alloc.h"
 #include "util/log.h"
+#include "util/list_entry.h"
 #include "core/socket_options.h"
 
 namespace raptor {
 
-struct tcp_listener {
+struct ListenerObject {
     list_entry entry;
     raptor_resolved_address addr;
     int listen_fd;
@@ -34,9 +35,9 @@ struct tcp_listener {
     raptor_dualstack_mode mode;
 };
 
-TcpListener::TcpListener(Acceptor* cp)
-    : _shutdown(true), _acceptor(cp) {
-    double_list_init(&_head);
+TcpListener::TcpListener(internal::IAcceptor* cp)
+    : _acceptor(cp), _shutdown(true) {
+    RAPTOR_LIST_INIT(&_head);
 }
 
 TcpListener::~TcpListener() {
@@ -51,13 +52,13 @@ void TcpListener::Shutdown() {
         _mtex.Lock();
         list_entry* entry = _head.next;
         while (entry != &_head) {
-            auto obj = reinterpret_cast<tcp_listener*>(entry);
+            auto obj = reinterpret_cast<ListenerObject*>(entry);
             entry = entry->next;
 
-            p2p_set_socket_shutdown(obj->listen_fd);
+            raptor_set_socket_shutdown(obj->listen_fd);
             delete obj;
         }
-        double_list_init(&_head);
+        RAPTOR_LIST_INIT(&_head);
         _mtex.Unlock();
     }
 }
@@ -78,11 +79,11 @@ void TcpListener::DoPolling() {
 
 RefCountedPtr<Status> TcpListener::Init() {
     if (!_shutdown) {
-        return P2P_ERROR_NONE;
+        return RAPTOR_ERROR_NONE;
     }
     _shutdown = false;
     auto e = _epoll.create();
-    if (e != P2P_ERROR_NONE) {
+    if (e != RAPTOR_ERROR_NONE) {
         return e;
     }
 
@@ -92,7 +93,7 @@ RefCountedPtr<Status> TcpListener::Init() {
             pthis->DoPolling();
         },
         this);
-    return P2P_ERROR_NONE;
+    return RAPTOR_ERROR_NONE;
 }
 
 bool TcpListener::StartListening() {
@@ -102,25 +103,25 @@ bool TcpListener::StartListening() {
 }
 
 RefCountedPtr<Status> TcpListener::AddListeningPort(const raptor_resolved_address* addr) {
-    if (_shutdown) return P2P_ERROR_FROM_STATIC_STRING("tcp listener uninitialized");
+    if (_shutdown) return RAPTOR_ERROR_FROM_STATIC_STRING("tcp listener uninitialized");
 
     int port = 0, listen_fd = 0;
-    p2p_dualstack_mode mode;
-    p2p_error e = p2p_create_dualstack_socket(addr, SOCK_STREAM, 0, &mode, &listen_fd);
-    if (e != P2P_ERROR_NONE) {
+    raptor_dualstack_mode mode;
+    raptor_error e = raptor_create_dualstack_socket(addr, SOCK_STREAM, 0, &mode, &listen_fd);
+    if (e != RAPTOR_ERROR_NONE) {
         log_error("Failed to create socket: %s", e->ToString().c_str());
         return e;
     }
-    e = p2p_tcp_server_prepare_socket(listen_fd, addr, 1, &port);
-    if (e != P2P_ERROR_NONE) {
+    e = raptor_tcp_server_prepare_socket(listen_fd, addr, &port, 1);
+    if (e != RAPTOR_ERROR_NONE) {
         log_error("Failed to configure socket: %s", e->ToString().c_str());
         return e;
     }
 
     // Add to epoll
     _mtex.Lock();
-    tcp_listener* node = new tcp_listener;
-    double_list_push_back(&_head, &node->entry);
+    ListenerObject* node = new ListenerObject;
+    raptor_list_push_back(&_head, &node->entry);
     _mtex.Unlock();
 
     node->addr = *addr;
@@ -128,27 +129,26 @@ RefCountedPtr<Status> TcpListener::AddListeningPort(const raptor_resolved_addres
     node->port = port;
     node->mode = mode;
 
-    _epoll.add(node->listen_fd, node, EPOLLIN /* | EPOLLET */);
+    _epoll.add(node->listen_fd, node, EPOLLIN);
 
     char* strAddr = nullptr;
-    p2p_sockaddr_to_string(&strAddr, addr, 0);
+    raptor_sockaddr_to_string(&strAddr, addr, 0);
     log_debug("start listening on %s", strAddr? strAddr : std::to_string(node->port).c_str());
-    p2p_free(strAddr);
+    Free(strAddr);
     return e;
 }
 
 void TcpListener::ProcessEpollEvents(void* ptr, uint32_t events) {
-    tcp_listener* sp = (tcp_listener*)ptr;
+    ListenerObject* sp = (ListenerObject*)ptr;
     RAPTOR_ASSERT(sp != nullptr);
     for (;;) {
         raptor_resolved_address client;
-        int sock_fd = p2p_accept(sp->listen_fd, &client, 1, 1);
+        int sock_fd = AcceptEx(sp->listen_fd, &client, 1, 1);
         if (sock_fd > 0) {
-            p2p_set_socket_no_sigpipe_if_possible(sock_fd);
-            p2p_set_socket_nonblocking(sock_fd, 1);
-            p2p_set_socket_reuse_addr(sock_fd, 1);
-            p2p_set_socket_rcv_timeout(sock_fd, 5000);
-            p2p_set_socket_snd_timeout(sock_fd, 5000);
+            raptor_set_socket_no_sigpipe_if_possible(sock_fd);
+            raptor_set_socket_reuse_addr(sock_fd, 1);
+            raptor_set_socket_rcv_timeout(sock_fd, 5000);
+            raptor_set_socket_snd_timeout(sock_fd, 5000);
             _acceptor->OnNewConnection(sock_fd, sp->port, &client);
             break;
         }
@@ -160,5 +160,18 @@ void TcpListener::ProcessEpollEvents(void* ptr, uint32_t events) {
         }
         log_error("Failed accept: %s on port: %d", strerror(errno), sp->port);
     }
+}
+
+int TcpListener::AcceptEx(
+                        int sockfd,
+                        raptor_resolved_address* resolved_addr,
+                        int nonblock, int cloexec) {
+    int flags = 0;
+    flags |= nonblock ? SOCK_NONBLOCK : 0;
+    flags |= cloexec ? SOCK_CLOEXEC : 0;
+    resolved_addr->len = sizeof(resolved_addr->addr);
+    return accept4(sockfd,
+                    reinterpret_cast<raptor_sockaddr*>(resolved_addr->addr),
+                    &resolved_addr->len, flags);
 }
 } // namespace raptor

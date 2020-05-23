@@ -19,29 +19,28 @@
 #include "core/linux/epoll_thread.h"
 
 namespace raptor {
-SendRecvThread::SendRecvThread(IReceiver* rcv)
+SendRecvThread::SendRecvThread(internal::IEpollReceiver* rcv)
     : _receiver(rcv), _shutdown(true) {
 }
 
 SendRecvThread::~SendRecvThread() {}
 
-bool SendRecvThread::Init() {
+RefCountedPtr<Status> SendRecvThread::Init() {
     if (!_shutdown) {
-        return false;
+        return RAPTOR_ERROR_NONE;
     }
 
     _shutdown = false;
-
-    if (0 == _epoll.create()) {
+    auto e = _epoll.create();
+    if (e == RAPTOR_ERROR_NONE) {
         _thd = Thread("send/recv",
             [] (void* param) -> void {
                 SendRecvThread* pthis = (SendRecvThread*)param;
                 pthis->DoWork();
             },
             this);
-        return true;
     }
-    return false;
+    return e;
 }
 
 bool SendRecvThread::Start() {

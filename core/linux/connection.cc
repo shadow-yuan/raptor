@@ -22,66 +22,70 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include "core/linux/epoll_thread.h"
-#include "core/socket_util.h"
+#include "core/linux/socket_setting.h"
 #include "util/sync.h"
 #include "plugin/protocol.h"
 #include "util/time.h"
 #include "util/log.h"
 
 namespace raptor {
-Connection::Connection(IMessageTransfer* service)
+Connection::Connection(internal::INotificationTransfer* service)
     : _service(service)
+    , _proto(nullptr)
+    , _fd(-1)
+    , _cid(core::InvalidConnectionId)
     , _rcv_thd(nullptr)
     , _snd_thd(nullptr) {
 
-    _cid = core::InvalidConnectionId;
-
-    _user_data = nullptr;
+    _user_data = 0;
+    _extend_ptr = nullptr;
 }
 
 Connection::~Connection() {}
 
 void Connection::Init(
                     ConnectionId cid,
+                    int fd,
                     const raptor_resolved_address* addr,
                     SendRecvThread* r, SendRecvThread* s) {
     _cid = cid;
     _rcv_thd = r;
     _snd_thd = s;
 
-    _rcv->Add(_cid.s.fd, (void*)_cid.value, EPOLLIN | EPOLLET);
-    _snd->Add(_cid.s.fd, (void*)_cid.value, EPOLLOUT | EPOLLET);
+    _rcv_thd->Add(fd, (void*)this, EPOLLIN | EPOLLET);
+    _snd_thd->Add(fd, (void*)this, EPOLLOUT | EPOLLET);
 
     _addr = *addr;
+
+    _service->OnConnectionArrived(_cid, &_addr);
 }
 
 bool Connection::Send(Slice header, const void* ptr, size_t len) {
     AutoMutex g(&_snd_mutex);
     _snd_buffer.AddSlice(header);
     _snd_buffer.AddSlice(Slice(ptr, len));
-    _snd->Modify(_cid.s.fd, (void*)_cid.value, EPOLLOUT | EPOLLET);
+    _snd_thd->Modify(_fd, (void*)this, EPOLLOUT | EPOLLET);
     return true;
 }
 
-void Connection::Shutdown(bool notify) {
-    if (_rst.fd <= 0) {
+void Connection::Close(bool notify) {
+    if (_fd < 0) {
         return;
     }
 
     if (_rcv_thd) {
-        _rcv_thd->Delete(_cid.s.fd, EPOLLIN | EPOLLET);
+        _rcv_thd->Delete(_fd, EPOLLIN | EPOLLET);
     }
     if (_snd_thd) {
-        _snd_thd->Delete(_cid.s.fd, EPOLLOUT | EPOLLET);
+        _snd_thd->Delete(_fd, EPOLLOUT | EPOLLET);
     }
 
     if (notify && _service) {
-        _service->OnClose(_cid);
+        _service->OnConnectionClosed(_cid);
     }
 
-    raptor_set_socket_shutdown(_cid.s.fd);
-
-    _rst.fd = 0;
+    raptor_set_socket_shutdown(_fd);
+    _fd = -1;
 
     memset(&_addr, 0, sizeof(_addr));
 
@@ -89,7 +93,7 @@ void Connection::Shutdown(bool notify) {
 }
 
 bool Connection::IsOnline() {
-    return _cid.s.fd > 0;
+    return (_fd != -1);
 }
 
 const raptor_resolved_address* Connection::GetAddress() {
@@ -110,9 +114,9 @@ void Connection::ReleaseBuffer() {
 void Connection::DoRecvEvent() {
     int result = OnRecv();
     if (result == 0) {
-        _rcv->Modify(_cid.s.fd, (void*)_cid.value, EPOLLIN | EPOLLET);
+        _rcv_thd->Modify(_fd, (void*)this, EPOLLIN | EPOLLET);
     } else {
-        Shutdown(true);
+        Close(true);
     }
 }
 
@@ -132,7 +136,7 @@ int Connection::OnRecv() {
         char buffer[8192];
 
         unused_space = sizeof(buffer);
-        recv_bytes = ::recv(_cid.s.fd, buffer, unused_space, 0);
+        recv_bytes = ::recv(_fd, buffer, unused_space, 0);
 
         if (recv_bytes == 0) {
             return -1;
@@ -151,13 +155,13 @@ int Connection::OnRecv() {
         size_t cache_size = _rcv_buffer.GetBufferLength();
         while (cache_size > 0) {
 
-            Slice obj = _rcv_buffer.GetHeader(Protocol::HeaderSize);
+            Slice obj = _rcv_buffer.GetHeader(_proto->GetHeaderSize());
             if (obj.Empty()) {
                 // need more data
                 break;
             }
 
-            size_t pack_len = (size_t)Protocol::CheckPackage(obj.begin(), obj.size());
+            size_t pack_len = (size_t)_proto->CheckPackageLength(&obj);
             if (cache_size < pack_len) {
                 // need more data
                 break;
@@ -166,11 +170,11 @@ int Connection::OnRecv() {
                 return -1;
             } else if (cache_size == pack_len) {
                 obj = _rcv_buffer.Merge();
-                _service->OnMessage(_cid, &obj);
+                _service->OnDataReceived(_cid, &obj);
                 _rcv_buffer.ClearBuffer();
             } else {
                 obj = _rcv_buffer.GetHeader(pack_len);
-                _service->OnMessage(_cid, &obj);
+                _service->OnDataReceived(_cid, &obj);
                 _rcv_buffer.MoveHeader(pack_len);
             }
             cache_size = _rcv_buffer.GetBufferLength();
@@ -189,7 +193,7 @@ int Connection::OnSend() {
     do {
 
         Slice slice = _snd_buffer.GetTopSlice();
-        int slen = ::send(_cid.s.fd, slice.begin(), slice.size(), 0);
+        int slen = ::send(_fd, slice.begin(), slice.size(), 0);
 
         if (slen == 0) {
             return -1;
@@ -210,10 +214,20 @@ int Connection::OnSend() {
 }
 
 void Connection::SetUserData(void* ptr) {
-    _user_data = ptr;
+    _extend_ptr = ptr;
 }
 
-void* Connection::GetUserData() const {
-    return _user_data;
+void Connection::GetUserData(void** ptr) const {
+    if (ptr) {
+        *ptr = _extend_ptr;
+    }
+}
+
+void Connection::SetExtendInfo(uint64_t data) {
+    _user_data = data;
+}
+
+void Connection::GetExtendInfo(uint64_t& data) const {
+    data = _user_data;
 }
 } // namespace raptor

@@ -20,6 +20,10 @@
 #include "core/linux/tcp_listen.h"
 #include "core/socket_util.h"
 #include "core/resolve_address.h"
+#include "core/mpscq.h"
+#include "util/time.h"
+#include "core/linux/socket_setting.h"
+#include "util/log.h"
 
 namespace raptor {
 namespace {
@@ -30,27 +34,28 @@ enum MessageType {
 };
 } // namespace
 struct TcpMessageNode {
-    MessageQueue::Node node;
+    MultiProducerSingleConsumerQueue::Node node;
     MessageType type;
     ConnectionId cid;
     raptor_resolved_address addr;
     Slice slice;
 };
-
-TcpServer::TcpServer(ITcpServerService* service)
+constexpr uint32_t InvalidUID = static_cast<uint32_t>(-1);
+TcpServer::TcpServer(IRaptorServerService* service)
     : _service(service), _shutdown(true) {}
 
 TcpServer::~TcpServer() {}
 
-RefCountedPtr<Status> TcpServer::Init() {
+RefCountedPtr<Status> TcpServer::Init(const RaptorOptions& options) {
     if (!_shutdown) return RAPTOR_ERROR_NONE;
 
+    _options = options;
     _count.Store(0);
-    _index.Store(0);
+
     _listener = std::make_shared<TcpListener>(this);
-    _recv_thread = std::make_shared<RecvSendThread>(this);
-    _send_thread = std::make_shared<RecvSendThread>(this);
-    _protocol = std::make_shared<Protocol>();
+    _recv_thread = std::make_shared<SendRecvThread>(this);
+    _send_thread = std::make_shared<SendRecvThread>(this);
+    _proto = std::make_shared<Protocol>();
 
     auto e = _listener->Init();
     if (e != RAPTOR_ERROR_NONE) {
@@ -67,12 +72,33 @@ RefCountedPtr<Status> TcpServer::Init() {
         return e;
     }
 
-    _thd = Thread("message_queue",
+    _mq_thread = Thread("message_queue",
         [] (void* param) ->void {
             TcpServer* pthis = (TcpServer*)param;
             pthis->MessageQueueThread();
         },
         this);
+
+    _timeout_thread = Thread("timeout_check",
+        [] (void* param) ->void {
+            TcpServer* pthis = (TcpServer*)param;
+            pthis->TimeoutCheckoutThread();
+        },
+        this);
+
+    // init connection container
+    _last_timeout_time = Now();
+    _magic_number = _last_timeout_time & 0xffff;
+    _current_index.Store(0);
+    if (_options.max_connections < 100) {
+        _options.max_connections = 100;
+    }
+    _conn_mgr.resize(100);
+    for (size_t i = 0; i < _conn_mgr.size(); i++) {
+        _conn_mgr[i].first = nullptr;
+        _free_list.push_back(i);
+    }
+    _timeout_record.clear();
 
     _shutdown = false;
     return RAPTOR_ERROR_NONE;
@@ -82,7 +108,7 @@ RefCountedPtr<Status> TcpServer::AddListeningPort(const char* addr) {
     if (_shutdown) return RAPTOR_ERROR_FROM_STATIC_STRING("tcp server uninitialized");
     if (!addr) return RAPTOR_ERROR_FROM_STATIC_STRING("invalid parameters");
     raptor_resolved_addresses* addrs;
-    auto ret = p2p_blocking_resolve_address(addr, nullptr, &addrs);
+    auto ret = raptor_blocking_resolve_address(addr, nullptr, &addrs);
     if (ret != RAPTOR_ERROR_NONE) {
         return ret;
     }
@@ -112,7 +138,8 @@ bool TcpServer::Start() {
     if (!_send_thread->Start()) {
         return false;
     }
-    _thd.Start();
+    _mq_thread.Start();
+    _timeout_thread.Start();
     return true;
 }
 
@@ -123,16 +150,17 @@ bool TcpServer::Shutdown() {
         _listener->Shutdown();
         _recv_thread->Shutdown();
         _send_thread->Shutdown();
-        _thd.Join();
+        _mq_thread.Join();
+        _timeout_thread.Join();
 
-        _conn_mtex.Lock();
+        _conn_mtx.Lock();
         for (auto& obj : _conn_mgr) {
-            if (obj) {
-                obj->Shutdown(false);
+            if (obj.first) {
+                obj.first->Close(false);
             }
         }
         _conn_mgr.clear();
-        _conn_mtex.Unlock();
+        _conn_mtx.Unlock();
 
         // clear message queue
         bool empty = true;
@@ -140,7 +168,7 @@ bool TcpServer::Shutdown() {
             auto n = _mq.PopAndCheckEnd(&empty);
             auto msg = reinterpret_cast<TcpMessageNode*>(n);
             if (msg != nullptr) {
-                _count.FetchSub(1, MemoryOrder::Relaxed);
+                _count.FetchSub(1, MemoryOrder::RELAXED);
                 delete msg;
             }
         } while (!empty);
@@ -149,222 +177,176 @@ bool TcpServer::Shutdown() {
     return false;
 }
 
+uint32_t TcpServer::GetIdlePosition() {
+    AutoMutex g(&_conn_mtx);
+    uint32_t index = 0;
+    if (_free_list.empty()) {
+        size_t count = _conn_mgr.size();
+        if (count == _options.max_connections) {
+            return static_cast<uint32_t>(-1);
+        }
+        size_t half = _options.max_connections / 2;
+        size_t new_size = (count >= half) ? _options.max_connections : half;
+        _conn_mgr.resize(new_size);
+        for (size_t i = count; i < new_size; i++) {
+            _conn_mgr[i].first = nullptr;
+            _free_list.push_back(i);
+        }
+    }
+    index = _free_list.front();
+    _free_list.pop_front();
+    return index;
+}
 
-
-// Acceptor implement
+// IAcceptor implement
 void TcpServer::OnNewConnection(int sock_fd,
     int listen_port, const raptor_resolved_address* addr) {
-#ifdef P2PCOMM_SSL
-    std::shared_ptr<OpenSSL> ssl;
-    if (!DoHandshake(sock_fd, ssl)) {
-#else
-    if (!DoHandshake(sock_fd)) {
-#endif
-        p2p_set_socket_shutdown(sock_fd);
+
+    uint32_t index = GetIdlePosition();
+    if (index == static_cast<uint32_t>(-1)) {
+        raptor_set_socket_shutdown(sock_fd);
+        log_error("The number of connections has reached the maximum: %u", _options.max_connections);
         return;
     }
-    AutoMutex g(&_conn_mtex);
-    int position = -1;
-    if (!_conn_mgr.empty()) {
-        size_t floor = _index.Load();
-        if (floor >= _conn_mgr.size() - 1) {
-            floor = 0;
-        }
-        for (size_t i = floor; i < _conn_mgr.size(); i++) {
-            if (!_conn_mgr[i]) {
-                _conn_mgr[i] = std::make_shared<Connection>(this);
-                position = static_cast<int>(i);
-                break;
-            }
-            if (!_conn_mgr[i]->IsOnline()) {
-                position = static_cast<int>(i);
-                break;
-            }
-        }
-    }
 
-    ConnectionId cid;
-    cid.s.fd = sock_fd;
+    time_t timeout_second = Now() + _options.connection_timeout;
+    ConnectionId cid = core::BuildConnectionId(_magic_number, (uint16_t)listen_port, index);
+    std::multimap<time_t, uint32_t>::iterator iter = _timeout_record.insert({timeout_second, index});
 
-    if (position == -1) {
-        position = _conn_mgr.size();
-        cid.s.index = position;
-        _conn_mgr.push_back(std::make_shared<Connection>(this));
+    if (!_conn_mgr[index].first) {
+        _conn_mgr[index].first = new Connection(this);
+        _conn_mgr[index].first->Init(cid, sock_fd, addr, _recv_thread.get(), _send_thread.get());
+        _conn_mgr[index].first->SetProtocol(_proto.get());
     } else {
-        cid.s.index = position;
+        _conn_mgr[index].first->Init(cid, sock_fd, addr, _recv_thread.get(), _send_thread.get());
     }
-
-    _index.Store(static_cast<size_t>(position));
-
-    std::shared_ptr<Connection> conn = _conn_mgr[position];
-    conn->Init(cid, addr,
-        _recv_thread.get(), _send_thread.get()
-#ifdef P2PCOMM_SSL
-        , ssl
-#endif
-    );
-
-    OnNewConnection(cid, addr);
+    _conn_mgr[index].second = iter;
 }
 
 // Receiver implement (epoll event)
 void TcpServer::OnError(void* ptr) {
-    AutoMutex g(&_conn_mtex);
-    ConnectionId cid = ConvertConnectionId((uint64_t)ptr);
-    if (cid.s.index < 0 || cid.s.index >= (int)_conn_mgr.size()) {
-        log_error("TcpServer: invalid internal index %d, fd = %d", cid.s.index, cid.s.fd);
-        return;
-    }
-
-    if (_conn_mgr[cid.s.index]) {
-        _conn_mgr[cid.s.index]->Shutdown(true);
-    }
+    ConnectionId cid = (ConnectionId)ptr;
+    uint32_t index = core::GetUserId(cid);
+    _conn_mgr[index].first->Close(true);
 }
 
 void TcpServer::OnRecvEvent(void* ptr) {
-    AutoMutex g(&_conn_mtex);
-    ConnectionId cid = ConvertConnectionId((uint64_t)ptr);
-    if (cid.s.index < 0 || cid.s.index >= (int)_conn_mgr.size()) {
-        log_error("TcpServer: invalid internal index %d, fd = %d", cid.s.index, cid.s.fd);
-        return;
-    }
-
-    if (_conn_mgr[cid.s.index]) {
-        _conn_mgr[cid.s.index]->DoRecvEvent();
-    }
+    ConnectionId cid = (ConnectionId)ptr;
+    uint32_t index = core::GetUserId(cid);
+    _conn_mgr[index].first->DoRecvEvent();
 }
 
 void TcpServer::OnSendEvent(void* ptr) {
-    AutoMutex g(&_conn_mtex);
-    ConnectionId cid = ConvertConnectionId((uint64_t)ptr);
-    if (cid.s.index < 0 || cid.s.index >= (int)_conn_mgr.size()) {
-        log_error("TcpServer: invalid internal index %d, fd = %d", cid.s.index, cid.s.fd);
-        return;
-    }
-    if (_conn_mgr[cid.s.index]) {
-        _conn_mgr[cid.s.index]->DoSendEvent();
-    }
+    ConnectionId cid = (ConnectionId)ptr;
+    uint32_t index = core::GetUserId(cid);
+    _conn_mgr[index].first->DoSendEvent();
+
 }
 
 // ServiceInterface implement
-void TcpServer::OnNewConnection(ConnectionId cid, const raptor_resolved_address* addr) {
+void TcpServer::OnConnectionArrived(ConnectionId cid, const raptor_resolved_address* addr) {
     TcpMessageNode* msg = new TcpMessageNode;
     msg->cid = cid;
     msg->addr = *addr;
     msg->type = MessageType::kNewConnection;
     _mq.push(&msg->node);
-    _count.FetchAdd(1, MemoryOrder::Acq_Rel);
+    _count.FetchAdd(1, MemoryOrder::ACQ_REL);
     _cv.Signal();
 }
 
-void TcpServer::OnMessage(ConnectionId cid, const Slice* s) {
+void TcpServer::OnDataReceived(ConnectionId cid, const Slice* s) {
     TcpMessageNode* msg = new TcpMessageNode;
     msg->cid = cid;
     msg->slice = *s;
     msg->type = MessageType::kRecvAMessage;
     _mq.push(&msg->node);
-    _count.FetchAdd(1, MemoryOrder::Acq_Rel);
+    _count.FetchAdd(1, MemoryOrder::ACQ_REL);
     _cv.Signal();
 }
 
-void TcpServer::OnClose(ConnectionId cid) {
+void TcpServer::OnConnectionClosed(ConnectionId cid) {
     TcpMessageNode* msg = new TcpMessageNode;
     msg->cid = cid;
     msg->type = MessageType::kCloseClient;
     _mq.push(&msg->node);
-    _count.FetchAdd(1, MemoryOrder::Acq_Rel);
+    _count.FetchAdd(1, MemoryOrder::ACQ_REL);
     _cv.Signal();
 }
 
 // send data
-RefCountedPtr<Status> TcpServer::GeneralSend(ConnectionId cid, const void* buf, size_t len) {
-    AutoMutex g(&_conn_mtex);
-    if (cid.s.index < 0 || cid.s.index >= (int)_conn_mgr.size()) {
+RefCountedPtr<Status> TcpServer::SendData(ConnectionId cid, const void* buf, size_t len) {
+    if (cid == core::InvalidConnectionId) {
         return RAPTOR_ERROR_FROM_STATIC_STRING("invalid cid");
     }
-    if (!_conn_mgr[cid.s.index]) {
+    uint16_t magic = core::GetMagicNumber(cid);
+    if (magic != _magic_number) {
+        return RAPTOR_ERROR_FROM_STATIC_STRING("invalid cid: magic number error");
+    }
+    uint32_t index = core::GetUserId(cid);
+    if (!_conn_mgr[index].first) {
         return RAPTOR_ERROR_FROM_STATIC_STRING("connection not exists");
     }
-    if (!_conn_mgr[cid.s.index]->IsOnline()) {
+    if (!_conn_mgr[index].first->IsOnline()) {
         return RAPTOR_ERROR_FROM_STATIC_STRING("connection not online");
     }
 
-    Slice hd = _protocol->BuildPackageHeader(len);
-    _conn_mgr[cid.s.index]->Send(hd, buf, len);
-    return RAPTOR_ERROR_NONE;
-}
-
-RefCountedPtr<Status> TcpServer::ChannelSend(uint32_t channel_id, ConnectionId cid, const void* buf, size_t len) {
-    if (!_channel_mgr.Exist(channel_id)) {
-        return RAPTOR_ERROR_FROM_STATIC_STRING("channel not exists");
-    }
-
-    AutoMutex g(&_conn_mtex);
-    if (cid.s.index < 0 || cid.s.index >= (int)_conn_mgr.size()) {
-        return RAPTOR_ERROR_FROM_STATIC_STRING("invalid cid");
-    }
-    if (!_conn_mgr[cid.s.index]) {
-        return RAPTOR_ERROR_FROM_STATIC_STRING("connection not exists");
-    }
-    if (!_conn_mgr[cid.s.index]->IsOnline()) {
-        return RAPTOR_ERROR_FROM_STATIC_STRING("connection not online");
-    }
-
-    Slice hd = _protocol->BuildPackageHeader(len, channel_id);
-    _conn_mgr[cid.s.index]->Send(hd, buf, len);
+    Slice hd = _proto->BuildPackageHeader(len);
+    _conn_mgr[index].first->Send(hd, buf, len);
     return RAPTOR_ERROR_NONE;
 }
 
 void TcpServer::CloseConnection(ConnectionId cid) {
-    AutoMutex g(&_conn_mtex);
-    if (cid.s.index < 0 || cid.s.index >= (int)_conn_mgr.size()) {
+    if (cid == core::InvalidConnectionId) {
         return;
     }
-    if (!_conn_mgr[cid.s.index]) {
+    uint16_t magic = core::GetMagicNumber(cid);
+    if (magic != _magic_number) {
         return;
     }
-    if (_conn_mgr[cid.s.index]->IsOnline()) {
-        _conn_mgr[cid.s.index]->Shutdown(false);
+    uint32_t index = core::GetUserId(cid);
+    if (!_conn_mgr[index].first) {
+        return;
     }
-    _conn_mgr[cid.s.index].reset();
+    if (!_conn_mgr[index].first->IsOnline()) {
+        return;
+    }
+
+    _conn_mgr[index].first->Close(false);
 }
 
 void TcpServer::MessageQueueThread() {
-    for (; !_shutdown; ) {
-        p2p_mutex_lock(_mutex.get());
+    while (!_shutdown) {
+        RaptorMutexLock(_mutex);
 
         while (_count.Load() == 0) {
             _cv.Wait(&_mutex);
             if (_shutdown) {
-                p2p_mutex_unlock(_mutex.get());
+                RaptorMutexUnlock(_mutex);
                 return;
             }
         }
         auto n = _mq.pop();
-        TcpMessageNode* msg = reinterpret_cast<TcpMessageNode*>(n);
+        auto msg = reinterpret_cast<struct TcpMessageNode*>(n);
 
         if (msg != nullptr) {
-            _count.FetchSub(1, MemoryOrder::Relaxed);
+            _count.FetchSub(1, MemoryOrder::RELAXED);
             this->Dispatch(msg);
             delete msg;
         }
-        p2p_mutex_unlock(_mutex.get());
+        RaptorMutexUnlock(_mutex);
     }
 }
 
 void TcpServer::Dispatch(struct TcpMessageNode* msg) {
     switch (msg->type) {
     case MessageType::kNewConnection:
-        _service->OnNewConnection(msg->cid, &msg->addr);
+        _service->OnConnected(msg->cid);
         break;
     case MessageType::kRecvAMessage:
         ChannelDispatch(msg->cid, msg->slice);
         break;
     case MessageType::kCloseClient:
-        // When receiving data error, we shutdown connection
-        // and remove it from _conn_mgr here
-        CloseConnection(msg->cid);
-        _service->OnClose(msg->cid);
+        _service->OnClosed(msg->cid);
         break;
     default:
         log_error("unknow message type %d", static_cast<int>(msg->type));
@@ -372,27 +354,61 @@ void TcpServer::Dispatch(struct TcpMessageNode* msg) {
     }
 }
 
-RefCountedPtr<Status> TcpServer::SetUserData(ConnectionId cid, void* ptr) {
-    AutoMutex g(&_conn_mtex);
-    if (cid.s.index < 0 || cid.s.index >= (int)_conn_mgr.size()) {
-        return RAPTOR_ERROR_FROM_STATIC_STRING("ConnectionId not exist.");
+bool TcpServer::SetUserData(ConnectionId cid, void* ptr) {
+    uint32_t uid = CheckConnectionId(cid);
+    if (uid == InvalidUID) {
+        return false;
     }
-    if (_conn_mgr[cid.s.index]) {
-        _conn_mgr[cid.s.index]->SetUserData(ptr);
-        return RAPTOR_ERROR_NONE;
-    }
-    return RAPTOR_ERROR_FROM_STATIC_STRING("Connection object is null.");
+
+    _conn_mgr[uid].first->SetUserData(ptr);
+    return true;
 }
 
-void* TcpServer::GetUserData(ConnectionId cid) {
-    AutoMutex g(&_conn_mtex);
-    if (cid.s.index < 0 || cid.s.index >= (int)_conn_mgr.size()) {
-        return nullptr;
+bool TcpServer::GetUserData(ConnectionId cid, void** ptr) const {
+    uint32_t uid = CheckConnectionId(cid);
+    if (uid == InvalidUID) {
+        return false;
     }
-    if (_conn_mgr[cid.s.index]) {
-        return _conn_mgr[cid.s.index]->GetUserData();
+
+    _conn_mgr[uid].first->GetUserData(ptr);
+    return true;
+}
+
+bool TcpServer::SetExtendInfo(ConnectionId cid, uint64_t data) {
+    uint32_t uid = CheckConnectionId(cid);
+    if (uid == InvalidUID) {
+        return false;
     }
-    return nullptr;
+
+    _conn_mgr[uid].first->SetExtendInfo(data);
+    return true;
+}
+
+bool TcpServer::GetExtendInfo(ConnectionId cid, uint64_t& data) const {
+    uint32_t uid = CheckConnectionId(cid);
+    if (uid == InvalidUID) {
+        return false;
+    }
+
+    _conn_mgr[uid].first->GetExtendInfo(data);
+    return true;
+}
+
+uint32_t TcpServer::CheckConnectionId(ConnectionId cid) const {
+    uint32_t failure = InvalidUID;
+    if (cid == core::InvalidConnectionId) {
+        return failure;
+    }
+    uint16_t magic = core::GetMagicNumber(cid);
+    if (magic != _magic_number) {
+        return failure;
+    }
+
+    uint16_t uid = core::GetUserId(cid);
+    if (uid >= _options.max_connections) {
+        return failure;
+    }
+    return uid;
 }
 
 }  // namespace raptor

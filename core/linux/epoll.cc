@@ -34,20 +34,19 @@ Epoll::~Epoll() {
     }
 }
 
-int Epoll::create() {
+RefCountedPtr<Status> Epoll::create() {
     if (_epoll_fd > 0) {
-        return 0;
+        return RAPTOR_ERROR_NONE;
     }
 
     _epoll_fd = epoll_create(MAX_EPOLL_EVENTS);
     if (_epoll_fd < 0) {
-        return -1;
+        return RAPTOR_POSIX_ERROR("epoll_create");
     }
-
     if (fcntl(_epoll_fd, F_SETFD, FD_CLOEXEC) != 0) {
-        return -2;
+        return RAPTOR_POSIX_ERROR("fcntl");
     }
-    return 0;
+    return RAPTOR_ERROR_NONE;
 }
 
 int Epoll::ctl(int fd, epoll_event* ev, int op) {

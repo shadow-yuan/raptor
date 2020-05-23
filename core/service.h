@@ -34,7 +34,7 @@ class IAcceptor {
 public:
     virtual ~IAcceptor() {}
     virtual void OnNewConnection(
-        raptor_socket_t rs, int listen_port, const raptor_resolved_address* addr) = 0;
+        int fd, int listen_port, const raptor_resolved_address* addr) = 0;
 };
 
 // for epoll
@@ -53,11 +53,12 @@ public:
     virtual void OnConnectResult(void* ptr, bool success) = 0;
 };
 
-class IMessageTransfer {
+class INotificationTransfer {
 public:
-    virtual ~IMessageTransfer() {}
-    virtual void OnMessage(ConnectionId cid, const Slice* s) = 0;
-    virtual void OnClose(ConnectionId cid) = 0;
+    virtual ~INotificationTransfer() {}
+    void OnConnectionArrived(ConnectionId cid, const raptor_resolved_address* addr);
+    virtual void OnDataReceived(ConnectionId cid, const Slice* s) = 0;
+    virtual void OnConnectionClosed(ConnectionId cid) = 0;
 };
 
 } // namespace internal

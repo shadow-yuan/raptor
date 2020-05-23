@@ -21,16 +21,17 @@
 
 #include <stdint.h>
 #include "core/linux/epoll.h"
-#include "util/thread.h"
 #include "core/service.h"
+#include "util/status.h"
+#include "util/thread.h"
 
 namespace raptor {
 class SendRecvThread final {
 public:
-    explicit SendRecvThread(IReceiver* rcv);
+    explicit SendRecvThread(internal::IEpollReceiver* rcv);
     ~SendRecvThread();
 
-    bool Init();
+    RefCountedPtr<Status> Init();
     bool Start();
     void Shutdown();
 
@@ -40,9 +41,9 @@ public:
 
 private:
     void DoWork();
-    IReceiver* _receiver;
+    internal::IEpollReceiver* _receiver;
     bool _shutdown;
-    poller _epoll;
+    Epoll _epoll;
     Thread _thd;
 };
 

@@ -19,32 +19,38 @@
 #ifndef __RAPTOR_CORE_LINUX_CONNECTION__
 #define __RAPTOR_CORE_LINUX_CONNECTION__
 
-#include "core/slice/slice_buffer.h"
 #include "core/resolve_address.h"
 #include "core/service.h"
+#include "core/slice/slice_buffer.h"
 #include "util/sync.h"
 
 namespace raptor {
+
+class Protocol;
 class SendRecvThread;
 
 class Connection {
     friend class TcpServer;
 public:
-    explicit Connection(IMessageTransfer* service);
+    explicit Connection(internal::INotificationTransfer* service);
     ~Connection();
 
     void Init(
             ConnectionId cid,
+            int fd,
             const raptor_resolved_address* addr,
             SendRecvThread* rcv, SendRecvThread* snd);
 
+    void SetProtocol(Protocol* p);
     bool Send(Slice header, const void* ptr, size_t len);
-    void Shutdown(bool notify = false);
+    void Close(bool notify = false);
     bool IsOnline();
     const raptor_resolved_address* GetAddress();
     ConnectionId Id() const { return _cid; }
     void SetUserData(void* ptr);
-    void* GetUserData() const;
+    void GetUserData(void** ptr) const;
+    void SetExtendInfo(uint64_t data);
+    void GetExtendInfo(uint64_t& data) const;
 
 private:
 
@@ -55,7 +61,10 @@ private:
     void DoSendEvent();
     void ReleaseBuffer();
 
-    IMessageTransfer* _service;
+    internal::INotificationTransfer* _service;
+    Protocol* _proto;
+    int _fd;
+    ConnectionId _cid;
 
     SendRecvThread* _rcv_thd;
     SendRecvThread* _snd_thd;
@@ -68,12 +77,8 @@ private:
 
     raptor_resolved_address _addr;
 
-    ConnectionId _cid;
-
-    raptor_socket_t _rst;
-
-    void* _user_data;
-
+    uint64_t _user_data;
+    void* _extend_ptr;
 };
 
 } // namespace raptor

@@ -1,17 +1,17 @@
 #pragma once
 #include "raptor/types.h"
 
-class IRaptorServerMessage {
+class IRaptorServerService {
 public:
-    virtual ~IRaptorServerMessage() {}
+    virtual ~IRaptorServerService() {}
     virtual void OnConnected(ConnectionId cid) = 0;
     virtual void OnMessageReceived(ConnectionId cid, const void* s, size_t len) = 0;
     virtual void OnClosed(ConnectionId cid) = 0;
 };
 
-class IRaptorServerService {
+class IRaptorServerEngine {
 public:
-    ~IRaptorServerService();
+    ~IRaptorServerEngine();
     virtual bool Init(const RaptorOptions* options, char* err_msg) = 0;
     virtual bool AddListening(const char* addr, char* err_msg) = 0;
     virtual bool Start(char* err_msg ) = 0;
