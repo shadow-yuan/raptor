@@ -42,6 +42,7 @@ public:
     void ClearBuffer();
     bool Empty() const { return _length == 0; }
     Slice GetTopSlice() const;
+    Slice GetSlice(size_t index) const;
 
 private:
     size_t CopyToBuffer(void* buff, size_t len);

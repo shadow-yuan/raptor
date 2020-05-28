@@ -29,14 +29,14 @@ Iocp::~Iocp() {
     }
 }
 
-bool Iocp::create(DWORD max_threads) {
+RefCountedPtr<Status> Iocp::create(DWORD max_threads) {
     if (!_handle) {
         _handle =  CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, NULL, max_threads);
         if (_handle == NULL) {
-            return false;
+            return RAPTOR_WINDOWS_ERROR(GetLastError(), "CreateIoCompletionPort");
         }
     }
-    return (_handle != NULL);
+    return RAPTOR_ERROR_NONE;
 }
 
 bool Iocp::add(SOCKET sock, void* CompletionKey) {

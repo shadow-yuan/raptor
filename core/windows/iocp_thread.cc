@@ -2,46 +2,52 @@
 #include "util/log.h"
 
 namespace raptor {
-IocpThread::IocpThread(IIocpReceiver* service)
+SendRecvThread::SendRecvThread(internal::IIocpReceiver* service)
     : _service(service)
     , _shutdown(true)
     , _rs_threads(0)
     , _threads(nullptr) {}
 
-IocpThread::~IocpThread() {
+SendRecvThread::~SendRecvThread() {
     if (!_shutdown) {
         Shutdown();
     }
 }
 
-bool IocpThread::Init(size_t rs_threads, size_t kernel_threads) {
-    if (!_shutdown) false;
-    if (!_iocp.create(kernel_threads)) {
-        return false;
+RefCountedPtr<Status> SendRecvThread::Init(size_t rs_threads, size_t kernel_threads) {
+    if (!_shutdown) return RAPTOR_ERROR_NONE;
+
+    auto e = _iocp.create(kernel_threads);
+    if (e != RAPTOR_ERROR_NONE) {
+        return e;
     }
+
     _shutdown = false;
     _rs_threads = rs_threads;
     _threads = new Thread[rs_threads];
     for (size_t i = 0; i < rs_threads; i++) {
-        _threads[i] = Thread("rs-thread",
+        _threads[i] = Thread("send/recv",
             [](void* param) ->void {
-                IocpThread* p = (IocpThread*)param;
+                SendRecvThread* p = (SendRecvThread*)param;
                 p->WorkThread();
             },
             this);
     }
-    return true;
+    return RAPTOR_ERROR_NONE;
 }
 
-void IocpThread::Start() {
-    if (_shutdown) return;
-    RAPTOR_ASSERT(_threads != nullptr);
-    for (size_t i = 0; i < _rs_threads; i++) {
-        _threads[i].Start();
+bool SendRecvThread::Start() {
+    if (!_shutdown) {
+        RAPTOR_ASSERT(_threads != nullptr);
+        for (size_t i = 0; i < _rs_threads; i++) {
+            _threads[i].Start();
+        }
+        return true;
     }
+    return false;
 }
 
-void IocpThread::Shutdown() {
+void SendRecvThread::Shutdown() {
     if (!_shutdown) {
         _shutdown = true;
         _iocp.post(NULL, &_exit);
@@ -53,19 +59,49 @@ void IocpThread::Shutdown() {
     }
 }
 
-void IocpThread::WorkThread(){
+void SendRecvThread::WorkThread(){
     while (!_shutdown) {
         DWORD NumberOfBytesTransferred = 0;
         void* CompletionKey = NULL;
         LPOVERLAPPED lpOverlapped = NULL;
+
+        // https://docs.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-getqueuedcompletionstatus
         bool ret = _iocp.polling(
             &NumberOfBytesTransferred, (PULONG_PTR)&CompletionKey, &lpOverlapped, INFINITE);
 
         if (!ret) {
+
+            /*
+                If theGetQueuedCompletionStatus function succeeds, it dequeued a completion
+                packet for a successful I/O operation from the completion port and has
+                stored information in the variables pointed to by the following parameters:
+                lpNumberOfBytes, lpCompletionKey, and lpOverlapped. Upon failure (the return
+                value is FALSE), those same parameters can contain particular value
+                combinations as follows:
+
+                    (1) If *lpOverlapped is NULL, the function did not dequeue a completion
+                        packet from the completion port. In this case, the function does not
+                        store information in the variables pointed to by the lpNumberOfBytes
+                        and lpCompletionKey parameters, and their values are indeterminate.
+
+                    (2) If *lpOverlapped is not NULL and the function dequeues a completion
+                        packet for a failed I/O operation from the completion port, the
+                        function stores information about the failed operation in the
+                        variables pointed to by lpNumberOfBytes, lpCompletionKey, and
+                        lpOverlapped. To get extended error information, call GetLastError.
+            */
+
+            if (lpOverlapped != NULL && CompletionKey != NULL) {
+                // Maybe an error occurred or the connection was closed
+                DWORD err_code = GetLastError();
+                _service->OnErrorEvent(CompletionKey, static_cast<size_t>(err_code));
+            }
             continue;
         }
 
-        if(lpOverlapped == &_exit) {  // shutdown
+        // shutdown signal
+
+        if(lpOverlapped == &_exit) {
             break;
         }
 

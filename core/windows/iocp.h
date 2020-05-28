@@ -18,6 +18,7 @@
 
 #pragma once
 #include <winsock2.h>
+#include "util/status.h"
 
 namespace raptor {
 enum class IocpEventType {
@@ -35,7 +36,7 @@ class Iocp final {
 public:
     Iocp();
     ~Iocp();
-    bool create(DWORD max_threads = 0);
+    RefCountedPtr<Status> create(DWORD max_threads = 0);
     bool add(SOCKET sock, void* CompletionKey);
     bool polling(
         DWORD* NumberOfBytesTransferred,

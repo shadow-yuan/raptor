@@ -22,12 +22,11 @@
 
 #include "core/resolve_address.h"
 #include "core/windows/iocp.h"
-#include "core/windows/tcp_listener.h"
+#include "core/windows/tcp_listen.h"
 #include "core/cid.h"
-#include "core/connection_list.h"
 #include "core/windows/connection.h"
 #include "core/mpscq.h"
-
+#include "core/windows/iocp_thread.h"
 #include "util/sync.h"
 #include "util/thread.h"
 #include "util/status.h"
@@ -38,8 +37,8 @@ class Slice;
 class TcpListener;
 
 class TcpServer : public internal::IAcceptor
-                , public internal::IMessageTransfer
-                , public IRaptorServerMessage {
+                , public IIocpReceiver
+                , public internal::INotificationTransfer {
 public:
     TcpServer(IRaptorServerMessage *service);
     ~TcpServer();

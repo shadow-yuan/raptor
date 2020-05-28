@@ -231,12 +231,16 @@ void Thread::Start() {
 
 void Thread::Join() {
     if (_impl != nullptr) {
+        if (_state == kAlive) {
+            _state = kActive;
+            _impl->Start();
+        }
         _impl->Join();
         delete _impl;
         _state = kFinish;
         _impl = nullptr;
     } else {
-      RAPTOR_ASSERT(_state == kFailed);
+        RAPTOR_ASSERT(_state == kFailed);
     }
 }
 }  // namespace raptor

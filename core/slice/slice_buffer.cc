@@ -135,4 +135,12 @@ Slice SliceBuffer::GetTopSlice() const {
     }
     return _vs[0];
 }
+
+Slice SliceBuffer::GetSlice(size_t index) const {
+    if (index < _vs.size()) {
+        return _vs[index];
+    }
+    return Slice();
+}
+
 } // namespace raptor

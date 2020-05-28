@@ -34,16 +34,25 @@ class IAcceptor {
 public:
     virtual ~IAcceptor() {}
     virtual void OnNewConnection(
-        int fd, int listen_port, const raptor_resolved_address* addr) = 0;
+        uint64_t fd, int listen_port, const raptor_resolved_address* addr) = 0;
 };
 
 // for epoll
 class IEpollReceiver {
 public:
     virtual ~IEpollReceiver() {}
-    virtual void OnError(void* ptr) = 0;
+    virtual void OnErrorEvent(void* ptr) = 0;
     virtual void OnRecvEvent(void* ptr) = 0;
     virtual void OnSendEvent(void* ptr) = 0;
+};
+
+// for iocp
+class IIocpReceiver {
+public:
+    virtual ~IIocpReceiver() {}
+    virtual void OnErrorEvent(void* ptr, size_t err_code) = 0;
+    virtual void OnRecvEvent(void* ptr, size_t transferred_bytes) = 0;
+    virtual void OnSendEvent(void* ptr, size_t transferred_bytes) = 0;
 };
 
 // async connect

@@ -16,10 +16,10 @@
  *
  */
 
-#include "core/windows/tcp_listener.h"
+#include "core/windows/tcp_listen.h"
 #include <string.h>
 #include <memory>
-#include "core/socket_options.h"
+#include "core/windows/socket_setting.h"
 #include "core/socket_util.h"
 #include "util/alloc.h"
 #include "util/list_entry.h"
@@ -29,8 +29,8 @@ namespace raptor {
 
 struct ListenerObject {
     list_entry entry;
-    raptor_socket_t listen_fd;
-    raptor_socket_t new_socket;
+    SOCKET listen_fd;
+    SOCKET new_socket;
     int port;
     raptor_dualstack_mode mode;
     uint8_t addr_buffer[(sizeof(raptor_sockaddr_in6) + 16) * 2];
@@ -38,19 +38,19 @@ struct ListenerObject {
     OVERLAPPED overlapped;
     ListenerObject() {
         RAPTOR_LIST_ENTRY_INIT(&entry);
-        listen_fd.fd = INVALID_SOCKET;
-        new_socket.fd = INVALID_SOCKET;
+        listen_fd = INVALID_SOCKET;
+        new_socket = INVALID_SOCKET;
         port = 0;
         memset(addr_buffer, 0, sizeof(addr_buffer));
         memset(&addr, 0, sizeof(addr));
         memset(&overlapped, 0, sizeof(overlapped));
     }
     ~ListenerObject() {
-        if (listen_fd.fd != INVALID_SOCKET) {
-            closesocket(listen_fd.fd);
+        if (listen_fd != INVALID_SOCKET) {
+            closesocket(listen_fd);
         }
-        if (new_socket.fd != INVALID_SOCKET) {
-            closesocket(new_socket.fd);
+        if (new_socket != INVALID_SOCKET) {
+            closesocket(new_socket);
         }
     }
 };
@@ -135,7 +135,7 @@ raptor_error TcpListener::AddListeningPort(const raptor_resolved_address* addr) 
     if (_shutdown) return RAPTOR_ERROR_FROM_STATIC_STRING("tcp listener is closed");
 
     raptor_dualstack_mode mode;
-    raptor_socket_t listen_fd;
+    SOCKET listen_fd;
 
     raptor_error e = raptor_create_socket(addr, &listen_fd, &mode);
     if (e != RAPTOR_ERROR_NONE) {
@@ -144,9 +144,9 @@ raptor_error TcpListener::AddListeningPort(const raptor_resolved_address* addr) 
     }
 
     if (!_AcceptEx || !_GetAcceptExSockAddrs) {
-        e = GetExtensionFunction(listen_fd.fd);
+        e = GetExtensionFunction(listen_fd);
         if (e != RAPTOR_ERROR_NONE) {
-            closesocket(listen_fd.fd);
+            closesocket(listen_fd);
             return e;
         }
     }
@@ -164,7 +164,7 @@ raptor_error TcpListener::AddListeningPort(const raptor_resolved_address* addr) 
     node->port = port;
     node->mode = mode;
     node->addr = *addr;
-    if (!_iocp.add(node->listen_fd.fd, node.get())) {
+    if (!_iocp.add(node->listen_fd, node.get())) {
         RaptorMutexUnlock(&_mutex);
         return RAPTOR_ERROR_FROM_STATIC_STRING("Failed to bind iocp");
     }
@@ -244,7 +244,7 @@ void TcpListener::WorkThread() {
 
         _service->OnNewConnection(CompletionKey->new_socket, CompletionKey->port, &client);
 
-        CompletionKey->new_socket.fd = INVALID_SOCKET;
+        CompletionKey->new_socket = INVALID_SOCKET;
         raptor_error e = StartAcceptEx(CompletionKey);
         if(e != RAPTOR_ERROR_NONE){
             log_error("prepare next accept fd error: %s", e->ToString().c_str());
@@ -258,15 +258,15 @@ raptor_error TcpListener::StartAcceptEx(struct ListenerObject* sp) {
     DWORD addrlen = sizeof(raptor_sockaddr_in6) + 16;
     DWORD bytes_received = 0;
     raptor_error error = RAPTOR_ERROR_NONE;
-    raptor_socket_t sock;
+    SOCKET sock;
 
-    sock.fd = WSASocket(
+    sock = WSASocket(
         ((raptor_sockaddr*)sp->addr.addr)->sa_family,
         SOCK_STREAM,
         IPPROTO_TCP, NULL, 0,
         RAPTOR_WSA_SOCKET_FLAGS);
 
-    if (sock.fd == INVALID_SOCKET) {
+    if (sock == INVALID_SOCKET) {
         error = RAPTOR_WINDOWS_ERROR(WSAGetLastError(), "WSASocket");
         goto failure;
     }
@@ -275,7 +275,7 @@ raptor_error TcpListener::StartAcceptEx(struct ListenerObject* sp) {
     if (error != RAPTOR_ERROR_NONE) goto failure;
 
     /* Start the "accept" asynchronously. */
-    success = _AcceptEx(sp->listen_fd.fd, sock.fd, sp->addr_buffer, 0,
+    success = _AcceptEx(sp->listen_fd, sock, sp->addr_buffer, 0,
                             addrlen, addrlen, &bytes_received,
                             &sp->overlapped);
 
@@ -294,8 +294,8 @@ raptor_error TcpListener::StartAcceptEx(struct ListenerObject* sp) {
     return RAPTOR_ERROR_NONE;
 
 failure:
-    if (sock.fd != INVALID_SOCKET) {
-        closesocket(sock.fd);
+    if (sock != INVALID_SOCKET) {
+        closesocket(sock);
     }
     return error;
 }

@@ -19,40 +19,62 @@
 #include "core/windows/connection.h"
 #include <string.h>
 #include "core/socket_util.h"
+#include "core/windows/socket_setting.h"
 #include "plugin/protocol.h"
 #include "util/log.h"
 #include "util/useful.h"
-#include "core/socket_options.h"
 
 namespace raptor {
-Connection::Connection(internal::IMessageTransfer* service)
+Connection::Connection(internal::INotificationTransfer* service)
     : _service(service)
-    , _cid(core::InvalidConnectionId) {
+    , _proto(nullptr)
+    , _cid(core::InvalidConnectionId)
+    , _send_pending(false) {
+
+    _fd = INVALID_SOCKET;
     memset(&_send_overlapped, 0, sizeof(_send_overlapped));
     memset(&_recv_overlapped, 0, sizeof(_recv_overlapped));
 
     _send_overlapped.event = IocpEventType::kSendEvent;
     _recv_overlapped.event = IocpEventType::kRecvEvent;
+
+    memset(&_addr, 0, sizeof(_addr));
+
+    for(int i = 0; i < DEFAULT_TEMP_SLICE_COUNT; i++) {
+        _tmp_buffer[i].first = MakeSliceByDefaultSize();
+        _tmp_buffer[i].second = 0;
+    }
 }
 
 Connection::~Connection() {}
 
-// Before attach, fd must be associated with iocp
-void Connection::Init(ConnectionId cid, raptor_socket_t sock, const raptor_resolved_address* addr) {
+void Connection::Init(ConnectionId cid, SOCKET sock, const raptor_resolved_address* addr) {
     _cid = cid;
-    _sock = sock;
+    _fd = sock;
     _addr = *addr;
+    _send_pending = false;
 
+    for(int i = 0; i < DEFAULT_TEMP_SLICE_COUNT; i++) {
+        _tmp_buffer[i].second = 0;
+    }
     AsyncRecv();
 }
 
+void Connection::SetProtocol(Protocol* p) {
+    _proto = p;
+}
+
 void Connection::Shutdown(bool notify) {
-    if (_sock.fd != INVALID_SOCKET) {
+    if (_fd == INVALID_SOCKET) {
+        return;
+    }
 
-        raptor_set_socket_shutdown(_sock);
-        _sock.fd = INVALID_SOCKET;
+    raptor_set_socket_shutdown(_fd);
+    _fd = INVALID_SOCKET;
+    _send_pending = false;
 
-        _service->OnClose(_cid);
+    if (notify) {
+        _service->OnConnectionClosed(_cid);
     }
 
     _rcv_mtx.Lock();
@@ -66,20 +88,33 @@ void Connection::Shutdown(bool notify) {
 
 void Connection::Send(const void* data, size_t len) {
     AutoMutex g(&_snd_mtx);
-    Slice hdr = protocol::BuildPackageHeader(len);
+    Slice hdr = _proto->BuildPackageHeader(len);
     _send_buffer.AddSlice(hdr);
     _send_buffer.AddSlice(Slice(data, len));
-    Slice s = _send_buffer.GetTopSlice();
-    AsynSend(&s);
+    if (!_send_pending) {
+        AsynSend();
+    }
 }
 
-bool Connection::AsynSend(Slice* s) {
+#define MAX_WSABUF_COUNT 16
 
-    _wsa_snd_buf.buf = (char*)s->Buffer();
-    _wsa_snd_buf.len = s->Length();
+bool Connection::AsynSend() {
+    WSABUF buffers[MAX_WSABUF_COUNT];
+    uint64_t len = 0;
+
+    DWORD buffer_count = 0;
+    size_t count = _send_buffer.Count();
+    for (size_t i = 0; i < count && i < MAX_WSABUF_COUNT; i++) {
+        Slice s = _send_buffer.GetSlice(i);
+        buffers[i].len = (ULONG)s.size();
+        buffers[i].buf = (char*)s.Buffer();
+        len += s.size();
+        buffer_count++;
+    }
+    RAPTOR_ASSERT(len <= ULONG_MAX);
 
     // https://docs.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-wsasend
-    int ret = WSASend(_sock.fd, &_wsa_snd_buf, 1, NULL, 0, &_send_overlapped.overlapped, NULL);
+    int ret = WSASend(_fd, buffers, buffer_count, NULL, 0, &_send_overlapped.overlapped, NULL);
 
     if (ret == SOCKET_ERROR) {
         int error = WSAGetLastError();
@@ -92,12 +127,12 @@ bool Connection::AsynSend(Slice* s) {
 
 bool Connection::AsyncRecv() {
     DWORD dwFlag = 0;
-
-    _wsa_rcv_buf.buf = NULL;
-    _wsa_rcv_buf.len = 0;
+    WSABUF rcv_buf;
+    rcv_buf.buf = NULL;
+    rcv_buf.len = 0;
 
     // https://docs.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-wsarecv
-    int ret = WSARecv(_sock.fd, &_wsa_rcv_buf, 1, NULL, &dwFlag, &_recv_overlapped.overlapped, NULL);
+    int ret = WSARecv(_fd, &rcv_buf, 1, NULL, &dwFlag, &_recv_overlapped.overlapped, NULL);
 
     if (ret == SOCKET_ERROR) {
         int error = WSAGetLastError();
@@ -109,7 +144,7 @@ bool Connection::AsyncRecv() {
 }
 
 bool Connection::IsOnline() {
-    return (_sock.fd != INVALID_SOCKET);
+    return (_fd != INVALID_SOCKET);
 }
 
 // IOCP Event
@@ -118,8 +153,7 @@ void Connection::OnSendEvent(size_t size) {
     AutoMutex g(&_snd_mtx);
     _send_buffer.MoveHeader(size);
     if (_send_buffer.GetBufferLength() > 0) {
-        Slice s = _send_buffer.GetTopSlice();
-        AsynSend(&s);
+        AsynSend();
     }
 }
 
@@ -158,7 +192,7 @@ int Connection::SyncRecv(size_t size, size_t* real_bytes) {
         char buffer[8192];
         unused_space = sizeof(buffer);
         int need_read = RAPTOR_MIN(unused_space, remain_bytes);
-        recv_bytes = ::recv(_sock.fd, buffer, need_read, 0);
+        recv_bytes = ::recv(_fd, buffer, need_read, 0);
         if (recv_bytes == 0) {
             return -1;
         }
@@ -181,17 +215,17 @@ int Connection::SyncRecv(size_t size, size_t* real_bytes) {
 void Connection::ParsingProtocol() {
     size_t cache_size = _recv_buffer.GetBufferLength();
     while (cache_size > 0) {
-        Slice obj = _recv_buffer.GetHeader(protocol::HeaderSize);
+        Slice obj = _recv_buffer.GetHeader(_proto->GetHeaderSize());
         if (obj.Empty()) {
             return;
         }
-        size_t pack_len = protocol::CheckPackageLength(obj.begin(), obj.size());
+        size_t pack_len = _proto->CheckPackageLength(&obj);
         if (cache_size < pack_len) {
             return;
         }
 
         Slice package = _recv_buffer.GetHeader(pack_len);
-        _service->OnMessage(_cid, package);
+        _service->OnDataReceived(_cid, &package);
         _recv_buffer.MoveHeader(pack_len);
         cache_size = _recv_buffer.GetBufferLength();
     }

@@ -18,24 +18,29 @@
 
 #pragma once
 #include <stdint.h>
+#include <utility>
+#include <vector>
 
-#include "core/windows/iocp.h"
-#include "core/resolve_address.h"
-#include "core/slice/slice_buffer.h"
-#include "util/sync.h"
 #include "core/cid.h"
+#include "core/resolve_address.h"
 #include "core/service.h"
+#include "core/slice/slice_buffer.h"
+#include "core/windows/iocp.h"
+#include "util/sync.h"
+#include "raptor/slice.h"
 
 namespace raptor {
-class TcpServer;
+class Protocol;
+constexpr int DEFAULT_TEMP_SLICE_COUNT = 2;
 class Connection final {
-    friend TcpServer;
+    friend class TcpServer;
 public:
-    explicit Connection(internal::IMessageTransfer* service);
+    explicit Connection(internal::INotificationTransfer* service);
     ~Connection();
 
-    // Before attach, fd must be associated with iocp
-    void Init(ConnectionId cid, raptor_socket_t sock, const raptor_resolved_address* addr);
+    // Before Init, sock must be associated with iocp
+    void Init(ConnectionId cid, SOCKET sock, const raptor_resolved_address* addr);
+    void SetProtocol(Protocol* p);
     void Shutdown(bool notify);
 
     void Send(const void* data, size_t len);
@@ -50,13 +55,19 @@ private:
 
     void ParsingProtocol();
     int  SyncRecv(size_t size, size_t* real_bytes = nullptr);
-    bool AsynSend(Slice* s);
+    bool AsynSend();
     bool AsyncRecv();
 
 private:
-    internal::IMessageTransfer * _service;  // not own it
+    using SliceEx = std::pair<Slice, int>;
+
+    internal::INotificationTransfer * _service;
+    Protocol* _proto;
+
     ConnectionId _cid;
-    raptor_socket_t _sock;
+    bool _send_pending;
+
+    SOCKET _fd;
 
     OverLappedEx _send_overlapped;
     OverLappedEx _recv_overlapped;
@@ -66,10 +77,11 @@ private:
     SliceBuffer _recv_buffer;
     SliceBuffer _send_buffer;
 
+    SliceEx _tmp_buffer[DEFAULT_TEMP_SLICE_COUNT];
+
+    Protocol* _proto;
+
     Mutex _rcv_mtx;
     Mutex _snd_mtx;
-
-    WSABUF _wsa_snd_buf;
-    WSABUF _wsa_rcv_buf;
 };
 } // namespace raptor
