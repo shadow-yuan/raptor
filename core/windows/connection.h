@@ -17,21 +17,19 @@
  */
 
 #pragma once
+#include <stddef.h>
 #include <stdint.h>
-#include <utility>
-#include <vector>
 
 #include "core/cid.h"
 #include "core/resolve_address.h"
 #include "core/service.h"
 #include "core/slice/slice_buffer.h"
 #include "core/windows/iocp.h"
-#include "util/sync.h"
 #include "raptor/slice.h"
+#include "util/sync.h"
 
 namespace raptor {
 class Protocol;
-constexpr int DEFAULT_TEMP_SLICE_COUNT = 2;
 class Connection final {
     friend class TcpServer;
 public:
@@ -39,27 +37,30 @@ public:
     ~Connection();
 
     // Before Init, sock must be associated with iocp
-    void Init(ConnectionId cid, SOCKET sock, const raptor_resolved_address* addr);
+    bool Init(ConnectionId cid, SOCKET sock, const raptor_resolved_address* addr);
     void SetProtocol(Protocol* p);
     void Shutdown(bool notify);
 
-    void Send(const void* data, size_t len);
+    bool Send(const void* data, size_t len);
     bool IsOnline();
 
-private:
-    void Recv();
+    void SetUserData(void* ptr);
+    void GetUserData(void** ptr) const;
+    void SetExtendInfo(uint64_t data);
+    void GetExtendInfo(uint64_t& data) const;
 
+private:
     // IOCP Event
-    void OnSendEvent(size_t size);
-    void OnRecvEvent(size_t size);
+    bool OnSendEvent(size_t size);
+    bool OnRecvEvent(size_t size);
 
     void ParsingProtocol();
-    int  SyncRecv(size_t size, size_t* real_bytes = nullptr);
-    bool AsynSend();
+
+    bool AsyncSend();
     bool AsyncRecv();
 
 private:
-    using SliceEx = std::pair<Slice, int>;
+    enum { DEFAULT_TEMP_SLICE_COUNT = 2 };
 
     internal::INotificationTransfer * _service;
     Protocol* _proto;
@@ -77,11 +78,12 @@ private:
     SliceBuffer _recv_buffer;
     SliceBuffer _send_buffer;
 
-    SliceEx _tmp_buffer[DEFAULT_TEMP_SLICE_COUNT];
-
-    Protocol* _proto;
+    Slice _tmp_buffer[DEFAULT_TEMP_SLICE_COUNT];
 
     Mutex _rcv_mtx;
     Mutex _snd_mtx;
+
+    uint64_t _user_data;
+    void* _extend_ptr;
 };
 } // namespace raptor

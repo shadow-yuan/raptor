@@ -20,6 +20,7 @@
 #define __RAPTOR_UTIL_THREAD__
 
 #include <stddef.h>
+#include <functional>
 
 namespace raptor {
 
@@ -29,6 +30,13 @@ public:
     virtual void Start() = 0;
     virtual void Join() = 0;
 };
+
+/*
+    Thread executor, allows to bring a custom parameter,
+    which can be used to distinguish different threads,
+    or just set nullptr.
+*/
+using ThreadExecutor = std::function<void(void*)>;
 
 class Thread {
 public:
@@ -58,7 +66,7 @@ public:
     Thread();
     Thread(
         const char* thread_name,
-        void (*thread_proc)(void* arg), void* arg,
+        ThreadExecutor, void* arg,
         bool* success = nullptr, const Options& options = Options());
 
     ~Thread() = default;

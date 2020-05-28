@@ -29,12 +29,17 @@ class Slice;
 
 namespace internal {
 
-// accepte
+// accept
 class IAcceptor {
 public:
     virtual ~IAcceptor() {}
     virtual void OnNewConnection(
-        uint64_t fd, int listen_port, const raptor_resolved_address* addr) = 0;
+    #ifdef _WIN32
+        SOCKET fd,
+    #else
+        int fd,
+    #endif
+        int listen_port, const raptor_resolved_address* addr) = 0;
 };
 
 // for epoll
@@ -65,7 +70,7 @@ public:
 class INotificationTransfer {
 public:
     virtual ~INotificationTransfer() {}
-    void OnConnectionArrived(ConnectionId cid, const raptor_resolved_address* addr);
+    virtual void OnConnectionArrived(ConnectionId cid, const raptor_resolved_address* addr) = 0;
     virtual void OnDataReceived(ConnectionId cid, const Slice* s) = 0;
     virtual void OnConnectionClosed(ConnectionId cid) = 0;
 };

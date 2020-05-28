@@ -34,13 +34,13 @@ class InternalThreadImpl;
 namespace {
 struct ThreadImplArgs {
     InternalThreadImpl* thd;
-    void (*thread_proc)(void* arg);
+    ThreadExecutor thread_proc;
     void* arg;
     bool joinable;
 #ifdef _WIN32
-    HANDLE join_event;
+    HANDLE join_object;
 #else
-    pthread_t thread_id;
+    pthread_t join_object;
 #endif
     char name[32];
 };
@@ -50,19 +50,15 @@ class InternalThreadImpl : public IThreadService {
 public:
     InternalThreadImpl(
         const char* name,
-        void (*thread_proc)(void* arg),
+        ThreadExecutor thread_proc,
         void* arg, bool* success, const Thread::Options& options)
         : _started(false) {
 
-#ifdef _WIN32
-        _join_event = 0;
-#else
-        _thread_id = 0;
-#endif
+        _join_object = 0;
         RaptorMutexInit(&_mutex);
         RaptorCondVarInit(&_ready);
 
-        ThreadImplArgs* info = static_cast<ThreadImplArgs*>(Malloc(sizeof(ThreadImplArgs)));
+        ThreadImplArgs* info = new ThreadImplArgs;
         info->thd = this;
         info->thread_proc = thread_proc;
         info->arg = arg;
@@ -70,24 +66,20 @@ public:
         strncpy(info->name, name, sizeof(info->name));
 
 #ifdef _WIN32
-        info->join_event = NULL;
+        info->join_object = NULL;
         if (options.Joinable()) {
-            info->join_event = CreateEvent(NULL, FALSE, FALSE, NULL);
-            if (info->join_event == NULL) {
-                Free(info);
+            info->join_object = CreateEvent(NULL, FALSE, FALSE, NULL);
+            if (info->join_object == NULL) {
+                delete info;
                 *success = false;
                 return;
             }
         }
-        HANDLE handle;
-        if (options.StackSize() != 0) {
-            handle = CreateThread(NULL, options.StackSize(), Run, info, 0, NULL);
-        } else {
-            handle = CreateThread(NULL, 64 * 1024, Run, info, 0, NULL);
-        }
 
+        size_t dwStackSize = (options.StackSize() == 0) ? (64 * 1024) : options.StackSize();
+        HANDLE handle = CreateThread(NULL, dwStackSize, Run, info, 0, NULL);
         if (handle == NULL) {
-            CloseHandle(info->join_event);
+            CloseHandle(info->join_object);
             *success = false;
         } else {
             CloseHandle(handle);
@@ -101,12 +93,14 @@ public:
         if (options.StackSize() != 0) {
             pthread_attr_setstacksize(&attr, options.StackSize());
         }
-        *success = pthread_create(&info->thread_id, &attr, Run, info) == 0;
+        *success = pthread_create(&info->join_object, &attr, Run, info) == 0;
         pthread_attr_destroy(&attr);
 #endif
 
-        if (!(*success)) {
-            Free(info);
+        if (*success) {
+            _join_object = info->join_object;
+        } else {
+            delete info;
         }
     }
 
@@ -123,27 +117,24 @@ public:
     }
 
     void Join() {
+        if (_join_object != 0) {
 #ifdef _WIN32
-        if (_join_event != NULL) {
-            WaitForSingleObject(_join_event, INFINITE);
-            CloseHandle(_join_event);
-        }
+            WaitForSingleObject(_join_object, INFINITE);
+            CloseHandle(_join_object);
 #else
-        if (_thread_id != 0) {
-            pthread_join(_thread_id, nullptr);
-        }
+            pthread_join(_join_object, nullptr);
 #endif
+        }
     }
 
 private:
 #ifdef _WIN32
-    static DWORD WINAPI Run(void* ptr)
+    static DWORD WINAPI Run(void* ptr) {
 #else
-    static void* Run(void* ptr)
+    static void* Run(void* ptr) {
 #endif
-    {
         ThreadImplArgs info = *(ThreadImplArgs*)ptr;
-        Free(ptr);
+        delete (ThreadImplArgs*)ptr;
 
         RaptorMutexLock(&info.thd->_mutex);
         while (!info.thd->_started) {
@@ -151,32 +142,31 @@ private:
         }
         RaptorMutexUnlock(&info.thd->_mutex);
 
-        if (info.joinable) {
-#ifdef _WIN32
-            info.thd->_join_event = info.join_event;
-#else
-            info.thd->_thread_id = info.thread_id;
-#endif
-        } else {
-            delete info.thd;
-        }
-
         try {
             (info.thread_proc)(info.arg);
-        }
-        catch(...) {
+        } catch(...) {
             log_error("An exception occurred in %s thread", info.name);
+        }
+
+#ifdef _WIN32
+        if (info.joinable) {
+            SetEvent(info.join_object);
+        }
+#endif
+        if (!info.joinable) {
+            delete info.thd;
         }
         return 0;
     }
 
+private:
     bool _started;
     raptor_mutex_t _mutex;
     raptor_condvar_t _ready;
 #ifdef _WIN32
-    HANDLE _join_event;
+    HANDLE _join_object;
 #else
-    pthread_t _thread_id;
+    pthread_t _join_object;
 #endif
 };
 
@@ -187,7 +177,7 @@ Thread::Thread()
 
 Thread::Thread(
     const char* thread_name,
-    void (*thread_proc)(void* arg), void* arg,
+    ThreadExecutor thread_proc, void* arg,
     bool* success, const Options& options) {
     bool ret = false;
     _impl = new InternalThreadImpl(thread_name, thread_proc, arg, &ret, options);

@@ -79,8 +79,10 @@ raptor_error TcpListener::Init(int max_threads) {
     if (max_threads < 1) {
         max_threads = 1;
     }
-    if (!_iocp.create(max_threads)) {
-        return RAPTOR_ERROR_FROM_FORMAT("failed to create iocp object(threads:%d)", max_threads);
+
+    auto e = _iocp.create(max_threads);
+    if (e != RAPTOR_ERROR_NONE) {
+        return e;
     }
 
     _shutdown = false;
@@ -88,12 +90,7 @@ raptor_error TcpListener::Init(int max_threads) {
     _threads = new Thread[_max_threads];
 
     for (int i = 0; i < _max_threads; i++) {
-        _threads[i] = Thread("listen",
-            [](void* param) ->void {
-                TcpListener* p = (TcpListener*)param;
-                p->WorkThread();
-            },
-            this);
+        _threads[i] = Thread("listen", std::bind(&TcpListener::WorkThread, this, std::placeholders::_1), nullptr);
     }
 
     log_debug("tcp listener initialization is complete");
@@ -222,7 +219,7 @@ raptor_error TcpListener::GetExtensionFunction(SOCKET fd) {
     return RAPTOR_ERROR_NONE;
 }
 
-void TcpListener::WorkThread() {
+void TcpListener::WorkThread(void* ptr) {
     while (!_shutdown) {
         DWORD NumberOfBytesTransferred = 0;
         ListenerObject* CompletionKey = NULL;

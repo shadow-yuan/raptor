@@ -14,6 +14,7 @@ public:
     RefCountedPtr<Status> Init(size_t rs_threads, size_t kernel_threads);
     bool Start();
     void Shutdown();
+    bool Add(SOCKET sock, void* CompletionKey);
 
 private:
     void WorkThread();

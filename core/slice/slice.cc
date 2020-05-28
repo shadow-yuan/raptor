@@ -16,7 +16,7 @@
  *
  */
 
-#include "core/slice/slice.h"
+#include "raptor/slice.h"
 #include <string.h>
 #include <algorithm>
 #include "util/alloc.h"

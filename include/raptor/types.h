@@ -34,8 +34,6 @@ typedef struct {
     size_t send_recv_timeout;
     size_t connection_timeout;
     size_t max_package_per_second;
-    size_t send_recv_threads;
-    size_t accept_threads;
 } raptor_options_t;
 
 typedef raptor_options_t RaptorOptions;

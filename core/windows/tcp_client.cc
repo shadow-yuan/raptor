@@ -15,14 +15,16 @@
  * limitations under the License.
  *
  */
-#include "core/iocp/tcp_client.h"
+#include "core/windows/tcp_client.h"
 #include "core/socket_util.h"
 #include "util/log.h"
+#include "core/windows/socket_setting.h"
 
 namespace raptor {
-TcpClient::TcpClient(IRaptorClientEvent* service)
+TcpClient::TcpClient(ITcpClientService* service, Protocol* proto)
     : _service(service)
-    , _progressing(false)
+    , _proto(proto)
+    , _send_pending(false)
     , _shutdown(true)
     , _connectex(nullptr)
     , _fd(INVALID_SOCKET)
@@ -38,16 +40,18 @@ raptor_error TcpClient::Init() {
 
     _event = WSACreateEvent();
     if (_event == WSA_INVALID_EVENT) {
-        return RAPTOR_WSA_ERROR("WSACreateEvent");
+        return RAPTOR_WINDOWS_ERROR(WSAGetLastError(), "WSACreateEvent");
     }
 
     _shutdown = false;
+    _send_pending = false;
+
+    for (size_t i = 0; i < DEFAULT_TEMP_SLICE_COUNT; i++) {
+        _tmp_buffer[i] = MakeSliceByDefaultSize();
+    }
+
     _thd = Thread("client",
-    [] (void* param) ->void {
-        TcpClient* pthis = (TcpClient*)param;
-        pthis->WorkThread();
-    },
-    this);
+        std::bind(&TcpClient::WorkThread, this, std::placeholders::_1), nullptr);
 
     _thd.Start();
     return RAPTOR_ERROR_NONE;
@@ -60,7 +64,7 @@ raptor_error TcpClient::Connect(const std::string& addr, size_t timeout_ms) {
     if (addr.empty()) {
         return RAPTOR_ERROR_FROM_STATIC_STRING("Invalid parameter");
     }
-    if (_progressing) {
+    if (_send_pending) {
         return RAPTOR_ERROR_FROM_STATIC_STRING("Connection operation in progress");
     }
     raptor_resolved_addresses* addrs;
@@ -87,7 +91,7 @@ raptor_error TcpClient::GetConnectExIfNecessary(SOCKET s) {
                     &_connectex, sizeof(_connectex), &ioctl_num_bytes, NULL, NULL);
 
         if (status != 0) {
-            return RAPTOR_WSA_ERROR("WSAIoctl(SIO_GET_EXTENSION_FUNCTION_POINTER)");
+            return RAPTOR_WINDOWS_ERROR(WSAGetLastError(), "WSAIoctl(SIO_GET_EXTENSION_FUNCTION_POINTER)");
         }
     }
     return RAPTOR_ERROR_NONE;
@@ -119,7 +123,7 @@ raptor_error TcpClient::InternalConnect(const raptor_resolved_address* addr) {
         bind(_fd, (raptor_sockaddr*)&local_address.addr, (int)local_address.len);
 
     if (status != 0) {
-        error = RAPTOR_WSA_ERROR("bind");
+        error = RAPTOR_WINDOWS_ERROR(WSAGetLastError(), "bind");
         goto failure;
     }
 
@@ -128,14 +132,14 @@ raptor_error TcpClient::InternalConnect(const raptor_resolved_address* addr) {
 
     ret = _connectex(_fd,
                     (raptor_sockaddr*)&addr->addr, (int)addr->len,
-                    NULL, 0, NULL, &_c_overlapped);
+                    NULL, 0, NULL, &_conncet_overlapped);
 
     /* It wouldn't be unusual to get a success immediately. But we'll still get
         an IOCP notification, so let's ignore it. */
     if (!ret) {
         int last_error = WSAGetLastError();
         if (last_error != ERROR_IO_PENDING) {
-            error = RAPTOR_WSA_ERROR("ConnectEx");
+            error = RAPTOR_WINDOWS_ERROR(WSAGetLastError(), "ConnectEx");
             goto failure;
         }
     }
@@ -149,18 +153,30 @@ failure:
     return error;
 }
 
-raptor_error TcpClient::Send(const void* buff, size_t len) {
-    _s_mtx.Lock();
+bool TcpClient::Send(const void* buff, size_t len) {
+    if (!IsOnline()) {
+        return false;
+    }
+
+    AutoMutex g(&_s_mtx);
+    Slice hdr = _proto->BuildPackageHeader(len);
+    _snd_buffer.AddSlice(hdr);
     _snd_buffer.AddSlice(Slice(buff, len));
-    Slice s = _snd_buffer.GetTopSlice();
-    AsyncSend(&s);
-    _s_mtx.Unlock();
-    return RAPTOR_ERROR_NONE;
+    if (!_send_pending) {
+        return AsyncSend();
+    }
+    return true;
 }
 
-raptor_error TcpClient::Shutdown() {
+bool TcpClient::IsOnline() const {
+    return (_fd != INVALID_SOCKET);
+}
+
+void TcpClient::Shutdown() {
     if (!_shutdown) {
-        _shutdown = false;
+        _shutdown = true;
+        _send_pending = false;
+
         _thd.Join();
 
         WSACloseEvent(_event);
@@ -168,12 +184,18 @@ raptor_error TcpClient::Shutdown() {
 
         raptor_set_socket_shutdown(_fd);
         _fd = INVALID_SOCKET;
-        return RAPTOR_ERROR_NONE;
+
+        _s_mtx.Lock();
+        _snd_buffer.ClearBuffer();
+        _s_mtx.Unlock();
+
+        _r_mtx.Lock();
+        _rcv_buffer.ClearBuffer();
+        _r_mtx.Unlock();
     }
-    return RAPTOR_ERROR_FROM_STATIC_STRING("tcp client not running");
 }
 
-void TcpClient::WorkThread() {
+void TcpClient::WorkThread(void* ptr) {
     while (!_shutdown) {
         DWORD ret = WSAWaitForMultipleEvents(1, &_event, FALSE, 1000, FALSE);
         if (ret == WSA_WAIT_FAILED || ret == WSA_WAIT_TIMEOUT) {
@@ -189,7 +211,7 @@ void TcpClient::WorkThread() {
         int error = 0;
         if (network_events.lNetworkEvents & FD_CONNECT) {
             error = network_events.iErrorCode[FD_CONNECT_BIT];
-            this->OnConnectedEvent(error);
+            this->OnConnectEvent(error);
         }
         if (network_events.lNetworkEvents & FD_CLOSE) {
             error = network_events.iErrorCode[FD_CLOSE_BIT];
@@ -206,13 +228,20 @@ void TcpClient::WorkThread() {
     }
 }
 
-void TcpClient::OnConnectedEvent(int err) {
+void TcpClient::OnConnectEvent(int err) {
+    if (err != 0) {
+        _service->OnConnectResult(false);
+        return;
+    }
+
     DWORD transfered_bytes = 0;
     DWORD flags = 0;
-    BOOL success = WSAGetOverlappedResult(_fd, &_c_overlapped, &transfered_bytes, FALSE, &flags);
-    if (!success) {
-        closesocket(_fd);
-        // TODO(SHADOW): clean up
+    BOOL success = WSAGetOverlappedResult(_fd, &_conncet_overlapped, &transfered_bytes, FALSE, &flags);
+    if (!success || !AsyncRecv()) {
+
+        // cleanup
+        Shutdown();
+
         _service->OnConnectResult(false);
     } else {
         _service->OnConnectResult(true);
@@ -220,48 +249,137 @@ void TcpClient::OnConnectedEvent(int err) {
 }
 
 void TcpClient::OnCloseEvent(int err) {
-    // TODO(SHADOW): clean up
-    closesocket(_fd);
+    // cleanup
+    Shutdown();
+
     _service->OnClosed();
 }
 
-void TcpClient::OnReadEvent(int err) {
+bool TcpClient::DoRecv() {
     DWORD transfered_bytes = 0;
     DWORD flags = 0;
-    BOOL success = WSAGetOverlappedResult(_fd, &_r_overlapped, &transfered_bytes, FALSE, &flags);
-    if (!success) {
+    if (!WSAGetOverlappedResult(_fd, &_recv_overlapped, &transfered_bytes, FALSE, &flags)) {
+        return false;
+    }
+
+    if (transfered_bytes == 0) {
+        return false;
+    }
+
+    AutoMutex g(&_r_mtx);
+    size_t node_size = _tmp_buffer[0].size();
+    size_t count = transfered_bytes / node_size;
+    size_t i = 0;
+
+    for (; i < DEFAULT_TEMP_SLICE_COUNT && i < count; i++) {
+        _rcv_buffer.AddSlice(_tmp_buffer[i]);
+        _tmp_buffer[i] = MakeSliceByDefaultSize();
+        transfered_bytes -= node_size;
+    }
+
+    if (transfered_bytes > 0) {
+        Slice s(_tmp_buffer[i].Buffer(), transfered_bytes);
+        _rcv_buffer.AddSlice(s);
+    }
+
+    ParsingProtocol();
+    return AsyncRecv();
+}
+
+void TcpClient::OnReadEvent(int err) {
+    if (err != 0) {
         OnCloseEvent(err);
         return;
     }
 
+    if (!DoRecv()) {
+        OnCloseEvent(err);
+    }
+}
 
+bool TcpClient::DoSend() {
+    DWORD transfered_bytes = 0;
+    DWORD flags = 0;
+
+    _send_pending = false;
+
+    if (!WSAGetOverlappedResult(_fd, &_send_overlapped, &transfered_bytes, FALSE, &flags)) {
+        return false;
+    }
+
+    if (transfered_bytes == 0) {
+        return false;
+    }
+
+    AutoMutex g(&_s_mtx);
+    _snd_buffer.MoveHeader((size_t)transfered_bytes);
+    if (!_snd_buffer.Empty()) {
+        return AsyncSend();
+    }
+    return true;
 }
 
 void TcpClient::OnSendEvent(int err) {
-    DWORD transfered_bytes = 0;
-    DWORD flags = 0;
-    BOOL success = WSAGetOverlappedResult(_fd, &_s_overlapped, &transfered_bytes, FALSE, &flags);
-    if (!success) {
+    if (err != 0) {
         OnCloseEvent(err);
         return;
     }
 
-    _s_mtx.Lock();
-    _snd_buffer.MoveHeader((size_t)transfered_bytes);
-    if (_snd_buffer.GetBufferLength() > 0) {
-        Slice s = _snd_buffer.GetTopSlice();
-        AsyncSend(&s);
+    if (!DoSend()) {
+        OnCloseEvent(err);
     }
-    _s_mtx.Unlock();
 }
 
-bool TcpClient::AsyncSend(Slice* s) {
+constexpr size_t MAX_PACKAGE_SIZE = 0xffff;
+constexpr size_t MAX_WSABUF_COUNT = 16;
 
-    _wsa_snd_buf.buf = (char*)s->Buffer();
-    _wsa_snd_buf.len = s->Length();
+bool TcpClient::AsyncSend() {
+    if (_snd_buffer.Empty() || _send_pending) {
+        return true;
+    }
+
+    WSABUF wsa_snd_buf[MAX_WSABUF_COUNT];
+    size_t prepare_send_length = 0;
+    DWORD wsa_buf_count = 0;
+
+    _send_pending = true;
+
+    size_t count = _snd_buffer.Count();
+    for (size_t i = 0; i < count && i < MAX_WSABUF_COUNT; i++) {
+        Slice s = _snd_buffer.GetSlice(i);
+        if (prepare_send_length + s.Length() > MAX_PACKAGE_SIZE) {
+            break;
+        }
+        wsa_snd_buf[i].buf = reinterpret_cast<char*>(s.Buffer());
+        wsa_snd_buf[i].len = static_cast<ULONG>(s.Length());
+        prepare_send_length += s.Length();
+        wsa_buf_count++;
+    }
 
     // https://docs.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-wsasend
-    int ret = WSASend(_fd, &_wsa_snd_buf, 1, NULL, 0, &_s_overlapped, NULL);
+    int ret = WSASend(_fd, wsa_snd_buf, wsa_buf_count, NULL, 0, &_send_overlapped, NULL);
+
+    if (ret == SOCKET_ERROR) {
+        int error = WSAGetLastError();
+        if (error != WSA_IO_PENDING) {
+            _send_pending = false;
+            return false;
+        }
+    }
+    return true;
+}
+
+bool TcpClient::AsyncRecv() {
+    WSABUF wsa_rcv_buf[DEFAULT_TEMP_SLICE_COUNT];
+    DWORD dwFlag = 0;
+
+    for (size_t i = 0; i < DEFAULT_TEMP_SLICE_COUNT; i++) {
+        wsa_rcv_buf[i].buf = reinterpret_cast<char*>(_tmp_buffer[i].Buffer());
+        wsa_rcv_buf[i].len = static_cast<ULONG>(_tmp_buffer[i].Length());
+    }
+
+    // https://docs.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-wsarecv
+    int ret = WSARecv(_fd, wsa_rcv_buf, DEFAULT_TEMP_SLICE_COUNT, NULL, &dwFlag, &_recv_overlapped, NULL);
 
     if (ret == SOCKET_ERROR) {
         int error = WSAGetLastError();
@@ -271,4 +389,24 @@ bool TcpClient::AsyncSend(Slice* s) {
     }
     return true;
 }
+
+void TcpClient::ParsingProtocol() {
+    size_t cache_size = _rcv_buffer.GetBufferLength();
+    while (cache_size > 0) {
+        Slice obj = _rcv_buffer.GetHeader(_proto->GetMaxHeaderSize());
+        if (obj.Empty()) {
+            break;
+        }
+        size_t pack_len = _proto->CheckPackageLength(&obj);
+        if (cache_size < pack_len) {
+            break;
+        }
+
+        Slice package = _rcv_buffer.GetHeader(pack_len);
+        _service->OnMessageReceived(package.begin(), package.size());
+        _rcv_buffer.MoveHeader(pack_len);
+        cache_size = _rcv_buffer.GetBufferLength();
+    }
+}
+
 } // namespace raptor

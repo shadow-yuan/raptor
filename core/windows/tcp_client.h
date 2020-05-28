@@ -17,43 +17,51 @@
  */
 
 #pragma once
-#include <winsock2.h>
 #include <string>
 #include "core/resolve_address.h"
-#include "core/socket_addr.h"
-#include "core/status.h"
-#include "core/thread.h"
+#include "core/sockaddr.h"
+#include "util/status.h"
+#include "util/thread.h"
 #include "core/slice/slice_buffer.h"
-#include "core/sync.h"
-#include "raptor/notification.h"
+#include "raptor/service.h"
+#include "raptor/protocol.h"
+#include "raptor/slice.h"
+#include "util/sync.h"
 
 namespace raptor{
-class Slice;
 class TcpClient final {
 public:
-    explicit TcpClient(IRaptorClientEvent* service);
+    TcpClient(ITcpClientService* service, Protocol* proto);
     ~TcpClient();
 
     raptor_error Init();
     raptor_error Connect(const std::string& addr, size_t timeout_ms);
-    raptor_error Send(const void* buff, size_t len);
-    raptor_error Shutdown();
-
+    bool Send(const void* buff, size_t len);
+    void Shutdown();
+    bool IsOnline() const;
 private:
-    void WorkThread();
+    void WorkThread(void* ptr);
     raptor_error InternalConnect(const raptor_resolved_address* addr);
     raptor_error GetConnectExIfNecessary(SOCKET s);
 
-    void OnConnectedEvent(int err);
+    // network event
+    void OnConnectEvent(int err);
     void OnCloseEvent(int err);
     void OnReadEvent(int err);
     void OnSendEvent(int err);
 
-    bool AsyncSend(Slice* s);
-    void AsyncRecv();
+    bool AsyncSend();
+    bool AsyncRecv();
 
-    IRaptorClientEvent *_service;
-    bool _progressing;
+    bool DoSend();
+    bool DoRecv();
+    void ParsingProtocol();
+
+private:
+    enum { DEFAULT_TEMP_SLICE_COUNT = 2};
+    ITcpClientService *_service;
+    Protocol* _proto;
+    bool _send_pending;
     bool _shutdown;
     LPFN_CONNECTEX _connectex;
 
@@ -62,9 +70,9 @@ private:
 
     Thread _thd;
 
-    OVERLAPPED _c_overlapped;
-    OVERLAPPED _s_overlapped;
-    OVERLAPPED _r_overlapped;
+    OVERLAPPED _conncet_overlapped;
+    OVERLAPPED _send_overlapped;
+    OVERLAPPED _recv_overlapped;
 
     Mutex _s_mtx;
     Mutex _r_mtx;
@@ -72,7 +80,6 @@ private:
     SliceBuffer _snd_buffer;
     SliceBuffer _rcv_buffer;
 
-    WSABUF _wsa_snd_buf;
-    WSABUF _wsa_rcv_buf;
+    Slice _tmp_buffer[DEFAULT_TEMP_SLICE_COUNT];
 };
 } // namespace raptor

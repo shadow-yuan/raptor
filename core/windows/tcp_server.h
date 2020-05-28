@@ -19,6 +19,9 @@
 #include <stdint.h>
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
+#include <map>
 
 #include "core/resolve_address.h"
 #include "core/windows/iocp.h"
@@ -29,18 +32,21 @@
 #include "core/windows/iocp_thread.h"
 #include "util/sync.h"
 #include "util/thread.h"
+#include "util/time.h"
 #include "util/status.h"
 #include "raptor/service.h"
+#include "raptor/protocol.h"
+#include "util/atomic.h"
 
 namespace raptor {
 class Slice;
 class TcpListener;
-
+struct TcpMessageNode;
 class TcpServer : public internal::IAcceptor
-                , public IIocpReceiver
+                , public internal::IIocpReceiver
                 , public internal::INotificationTransfer {
 public:
-    TcpServer(IRaptorServerMessage *service);
+    TcpServer(ITcpServerService *service, Protocol* proto);
     ~TcpServer();
 
     raptor_error Init(const RaptorOptions* options);
@@ -53,39 +59,66 @@ public:
 
     // internal::IAcceptor impl
     void OnNewConnection(
-        raptor_socket_t sock, int listen_port,
+        SOCKET sock, int listen_port,
         const raptor_resolved_address* addr) override;
 
-    // internal::IMessageTransfer impl
-    void OnMessage(ConnectionId cid, const Slice* s) override;
-    void OnClose(ConnectionId cid) override;
+    // internal::IIocpReceiver impl
+    void OnErrorEvent(void* ptr, size_t err_code) override;
+    void OnRecvEvent(void* ptr, size_t transferred_bytes) override;
+    void OnSendEvent(void* ptr, size_t transferred_bytes) override;
 
-    // IRaptorServerMessage impl
-    void OnConnected(ConnectionId cid) override;
-    void OnMessageReceived(ConnectionId cid, const void* s, size_t len) override;
-    void OnClosed(ConnectionId cid) override;
+    // internal::INotificationTransfer impl
+    void OnConnectionArrived(ConnectionId cid, const raptor_resolved_address* addr) override;
+    void OnDataReceived(ConnectionId cid, const Slice* s) override;
+    void OnConnectionClosed(ConnectionId cid) override;
 
     // user data
-    void SetUserData(ConnectionId id, void* userdata);
-    void* GetUserData(ConnectionId id);
+    bool SetUserData(ConnectionId cid, void* ptr);
+    bool GetUserData(ConnectionId cid, void** ptr) const;
+    bool SetExtendInfo(ConnectionId cid, uint64_t data);
+    bool GetExtendInfo(ConnectionId cid, uint64_t& data) const;
 
 private:
-    void WorkThread();
-    void TimeoutCheckThread();
 
-    void InitConnectionList();
-    void InitTimeoutThread();
-    void InitWorkThread();
+    void TimeoutCheckThread(void*);
+    void MessageQueueThread(void*);
+    uint32_t CheckConnectionId(ConnectionId cid) const;
+    void Dispatch(struct TcpMessageNode* msg);
 
-    IRaptorServerMessage* _service;
+private:
+
+    using TimeoutRecord = std::multimap<time_t, uint32_t>;
+    struct ConnectionData {
+        Connection* con;
+        TimeoutRecord::iterator iter;
+        ConnectionData() {
+            con = nullptr;
+        }
+    };
+
+    enum { RESERVED_CONNECTION_COUNT = 100 };
+
+    ITcpServerService* _service;
+    Protocol* _proto;
+
     bool _shutdown;
-    Thread* _rs_threads;
     RaptorOptions _options;
-    Iocp _iocp;
-    std::shared_ptr<TcpListener> _listener;
-    std::shared_ptr<ConnectionList> _conn_list;
+
     MultiProducerSingleConsumerQueue _mpscq;
-    Thread _timeout_threads;
-    OVERLAPPED _exit;
+    Thread _mq_thd;
+    Mutex _mutex;
+    ConditionVariable _cv;
+    AtomicUInt32 _count;
+
+    std::shared_ptr<SendRecvThread> _rs_thread;
+    std::shared_ptr<TcpListener> _listener;
+    Thread _timeout_thread;
+
+    Mutex _conn_mtx;
+    std::vector<ConnectionData> _mgr;
+    // key: timeout deadline, value: index for _mgr
+    TimeoutRecord _timeout_record_list;
+    std::list<uint32_t> _free_index_list;
+    uint16_t _magic_number;
 };
 } // namespace raptor

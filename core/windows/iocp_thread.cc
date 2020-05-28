@@ -59,6 +59,10 @@ void SendRecvThread::Shutdown() {
     }
 }
 
+bool SendRecvThread::Add(SOCKET sock, void* CompletionKey) {
+    return _iocp.add(sock, CompletionKey);
+}
+
 void SendRecvThread::WorkThread(){
     while (!_shutdown) {
         DWORD NumberOfBytesTransferred = 0;
@@ -103,6 +107,13 @@ void SendRecvThread::WorkThread(){
 
         if(lpOverlapped == &_exit) {
             break;
+        }
+
+        // error
+        if (NumberOfBytesTransferred == 0) {
+            DWORD err_code = GetLastError();
+            _service->OnErrorEvent(CompletionKey, static_cast<size_t>(err_code));
+            continue;
         }
 
         OverLappedEx* ptr = (OverLappedEx*)lpOverlapped;

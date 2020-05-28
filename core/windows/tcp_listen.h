@@ -41,7 +41,7 @@ public:
     void Shutdown();
 
 private:
-    void WorkThread();
+    void WorkThread(void* ptr);
     raptor_error StartAcceptEx(struct ListenerObject*);
     void ParsingNewConnectionAddress(
         const ListenerObject* sp, raptor_resolved_address* remote);
