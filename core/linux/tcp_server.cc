@@ -17,13 +17,13 @@
  */
 
 #include "core/linux/tcp_server.h"
-#include "core/linux/tcp_listen.h"
-#include "core/socket_util.h"
-#include "core/resolve_address.h"
-#include "core/mpscq.h"
-#include "util/time.h"
+#include "core/linux/tcp_listener.h"
 #include "core/linux/socket_setting.h"
+#include "core/mpscq.h"
+#include "core/resolve_address.h"
+#include "core/socket_util.h"
 #include "util/log.h"
+#include "util/time.h"
 
 namespace raptor {
 enum MessageType {
@@ -282,7 +282,7 @@ void TcpServer::OnSendEvent(void* ptr) {
 }
 
 void TcpServer::OnCheckingEvent(time_t current) {
-    
+
     // At least 1s to check once
     if (current - _last_timeout_time.Load() < 1) {
         return;
