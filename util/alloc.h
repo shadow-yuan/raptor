@@ -21,10 +21,6 @@
 
 #include <stddef.h>
 
-#include <memory>
-#include <type_traits>
-#include <utility>
-
 namespace raptor {
 
 void* Malloc(size_t size);
@@ -32,24 +28,6 @@ void* ZeroAlloc(size_t size);
 void* Realloc(void* ptr, size_t size);
 void  Free(void* ptr);
 
-namespace internal {
-
-template <typename T, typename... Args>
-inline T* New(Args&&... args) {
-    using Type = std::aligned_storage<sizeof(T), alignof(T)>::type;
-    void* ptr = Malloc(sizeof(Type));
-    return new (ptr) T(std::forward<Args>(args)...);
-}
-
-template <typename T>
-inline void Delete(T* ptr) {
-    if (ptr != nullptr) {
-        ptr->~T();
-        Free(ptr);
-    }
-}
-
-} // namespace internal
 } // namespace raptor
 
 #endif  // __RAPTOR_UTIL_ALLOC__

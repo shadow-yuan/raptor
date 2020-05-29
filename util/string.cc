@@ -17,6 +17,7 @@
  */
 
 #include "util/string.h"
+#include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
 #include "util/alloc.h"
@@ -43,7 +44,11 @@ int raptor_asprintf(char** strp, const char* format, ...) {
     size_t strp_buflen;
 
     va_start(args, format);
+#ifdef _WIN32
+    ret = _vscprintf(format, args);
+#else
     ret = vsnprintf(buf, sizeof(buf), format, args);
+#endif
     va_end(args);
     if (ret < 0) {
         *strp = nullptr;
@@ -62,7 +67,11 @@ int raptor_asprintf(char** strp, const char* format, ...) {
 
     // try again using the larger buffer.
     va_start(args, format);
+#ifdef _WIN32
+    ret = vsnprintf_s(*strp, strp_buflen, _TRUNCATE, format, args);
+#else
     ret = vsnprintf(*strp, strp_buflen, format, args);
+#endif
     va_end(args);
     if (static_cast<size_t>(ret) == strp_buflen - 1) {
         return ret;

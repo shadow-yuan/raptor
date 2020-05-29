@@ -17,17 +17,19 @@
  */
 
 #pragma once
-#include <memory>
-#include <vector>
-#include <list>
+#include <time.h>
 #include <map>
+#include <memory>
+#include <list>
 #include <utility>
+#include <vector>
 
 #include "core/linux/epoll_thread.h"
 #include "core/linux/connection.h"
 #include "core/mpscq.h"
 #include "util/status.h"
 #include "util/sync.h"
+#include "raptor/protocol.h"
 #include "raptor/service.h"
 
 namespace raptor {
@@ -37,32 +39,33 @@ class TcpServer : public internal::IAcceptor
                 , public internal::IEpollReceiver
                 , public internal::INotificationTransfer {
 public:
-    explicit TcpServer(IRaptorServerService* service);
+    TcpServer(ITcpServerService *service, Protocol* proto);
     ~TcpServer();
 
-    RefCountedPtr<Status> Init(const RaptorOptions& options);
+    RefCountedPtr<Status> Init(const RaptorOptions* options);
     RefCountedPtr<Status> AddListeningPort(const char* addr);
 
-    bool Start();
-    bool Shutdown();
+    raptor_error Start();
+    void Shutdown();
 
-    // IAcceptor implement
-    void OnNewConnection(int sock_fd,
-        int listen_port, const raptor_resolved_address* addr) override;
+    bool Send(ConnectionId cid, const void* buf, size_t len);
+    bool CloseConnection(ConnectionId cid);
 
-    // IEpollReceiver implement (epoll event)
-    void OnError(void* ptr) override;
+    // internal::IAcceptor impl
+    void OnNewConnection(
+        int sock_fd, int listen_port,
+        const raptor_resolved_address* addr) override;
+
+    // internal::IEpollReceiver implement
+    void OnErrorEvent(void* ptr) override;
     void OnRecvEvent(void* ptr) override;
     void OnSendEvent(void* ptr) override;
+    void OnCheckingEvent(time_t current) override;
 
-    // INotificationTransfer implement
+    // internal::INotificationTransfer impl
     void OnConnectionArrived(ConnectionId cid, const raptor_resolved_address* addr);
     void OnDataReceived(ConnectionId cid, const Slice* s) override;
     void OnConnectionClosed(ConnectionId cid) override;
-
-    // send data
-    RefCountedPtr<Status> SendData(ConnectionId cid, const void* buf, size_t len);
-    void CloseConnection(ConnectionId cid);
 
     // user data
     bool SetUserData(ConnectionId cid, void* ptr);
@@ -71,41 +74,42 @@ public:
     bool GetExtendInfo(ConnectionId cid, uint64_t& data) const;
 
 private:
-    using ConnectionData =
-        std::pair<Connection*, std::multimap<time_t, uint32_t>::iterator>;
-
-    void MessageQueueThread();
-    void TimeoutCheckoutThread();
-
-    void Dispatch(struct TcpMessageNode* msg);
-    void ChannelDispatch(ConnectionId cid, const Slice& s);
-    uint32_t GetIdlePosition();
+    void TimeoutCheckThread(void*);
+    void MessageQueueThread(void*);
     uint32_t CheckConnectionId(ConnectionId cid) const;
+    void Dispatch(struct TcpMessageNode* msg);
+    void DeleteConnection(uint32_t index);
 
-    IRaptorServerService* _service;
+private:
+    using TimeoutRecord = std::multimap<time_t, uint32_t>;
+    using ConnectionData = 
+        std::pair<Connection*, TimeoutRecord::iterator>;
+
+    enum { RESERVED_CONNECTION_COUNT = 100 };
+
+    ITcpServerService* _service;
+    Protocol* _proto;
+
     bool _shutdown;
-    Thread _mq_thread;
-    AtomicUInt32 _count;
+    RaptorOptions _options;
+
+    MultiProducerSingleConsumerQueue _mpscq;
+    Thread _mq_thd;
     Mutex _mutex;
     ConditionVariable _cv;
-    Thread _timeout_thread;
-
-    Mutex _conn_mtx;
-    time_t _last_timeout_time;
-    uint16_t _magic_number;
-    AtomicInt32 _current_index;
-    std::vector<ConnectionData> _conn_mgr;
-    std::list<uint32_t> _free_list;
-    std::multimap<time_t, uint32_t> _timeout_record;
-
-    MultiProducerSingleConsumerQueue _mq;
+    AtomicUInt32 _count;
 
     std::shared_ptr<TcpListener> _listener;
     std::shared_ptr<SendRecvThread> _recv_thread;
     std::shared_ptr<SendRecvThread> _send_thread;
-    std::shared_ptr<Protocol> _proto;
 
-    RaptorOptions _options;
+    Mutex _conn_mtx;
+    std::vector<ConnectionData> _mgr;
+    // key: timeout deadline, value: index for _mgr
+    TimeoutRecord _timeout_record_list;
+    std::list<uint32_t> _free_index_list;
+    uint16_t _magic_number;
+    Atomic<time_t> _last_timeout_time;
 };
 
 } // namespace raptor

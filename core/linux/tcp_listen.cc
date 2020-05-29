@@ -23,7 +23,7 @@
 #include "util/alloc.h"
 #include "util/log.h"
 #include "util/list_entry.h"
-#include "core/socket_options.h"
+#include "core/linux/socket_setting.h"
 
 namespace raptor {
 
@@ -42,6 +42,28 @@ TcpListener::TcpListener(internal::IAcceptor* cp)
 
 TcpListener::~TcpListener() {
     RAPTOR_ASSERT(_shutdown);
+}
+
+RefCountedPtr<Status> TcpListener::Init() {
+    if (!_shutdown) {
+        return RAPTOR_ERROR_NONE;
+    }
+    _shutdown = false;
+    auto e = _epoll.create();
+    if (e != RAPTOR_ERROR_NONE) {
+        return e;
+    }
+
+    _thd = Thread("listen",
+        std::bind(&TcpListener::DoPolling, this, std::placeholders::_1), nullptr);
+
+    return RAPTOR_ERROR_NONE;
+}
+
+bool TcpListener::StartListening() {
+    if (_shutdown) return false;
+    _thd.Start();
+    return true;
 }
 
 void TcpListener::Shutdown() {
@@ -63,7 +85,7 @@ void TcpListener::Shutdown() {
     }
 }
 
-void TcpListener::DoPolling() {
+void TcpListener::DoPolling(void* ptr) {
     while (!_shutdown) {
         int number_of_fd = _epoll.polling();
         if (number_of_fd <= 0) {
@@ -75,31 +97,6 @@ void TcpListener::DoPolling() {
             ProcessEpollEvents(ev->data.ptr, ev->events);
         }
     }
-}
-
-RefCountedPtr<Status> TcpListener::Init() {
-    if (!_shutdown) {
-        return RAPTOR_ERROR_NONE;
-    }
-    _shutdown = false;
-    auto e = _epoll.create();
-    if (e != RAPTOR_ERROR_NONE) {
-        return e;
-    }
-
-    _thd = Thread("listen",
-        [] (void* param) -> void {
-            TcpListener* pthis = (TcpListener*)param;
-            pthis->DoPolling();
-        },
-        this);
-    return RAPTOR_ERROR_NONE;
-}
-
-bool TcpListener::StartListening() {
-    if (_shutdown) return false;
-    _thd.Start();
-    return true;
 }
 
 RefCountedPtr<Status> TcpListener::AddListeningPort(const raptor_resolved_address* addr) {

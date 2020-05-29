@@ -42,8 +42,8 @@ public:
             SendRecvThread* rcv, SendRecvThread* snd);
 
     void SetProtocol(Protocol* p);
-    bool Send(Slice header, const void* ptr, size_t len);
-    void Close(bool notify = false);
+    bool Send(const void* ptr, size_t len);
+    void Shutdown(bool notify = false);
     bool IsOnline();
     const raptor_resolved_address* GetAddress();
     ConnectionId Id() const { return _cid; }
@@ -57,8 +57,8 @@ private:
     int OnRecv();
     int OnSend();
 
-    void DoRecvEvent();
-    void DoSendEvent();
+    bool DoRecvEvent();
+    bool DoSendEvent();
     void ReleaseBuffer();
 
     internal::INotificationTransfer* _service;

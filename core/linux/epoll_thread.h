@@ -40,7 +40,7 @@ public:
     int Delete(int fd, uint32_t events);
 
 private:
-    void DoWork();
+    void DoWork(void* ptr);
     internal::IEpollReceiver* _receiver;
     bool _shutdown;
     Epoll _epoll;

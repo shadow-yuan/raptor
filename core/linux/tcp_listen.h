@@ -17,9 +17,9 @@
  */
 
 #pragma once
-#include "core/service.h"
-#include "core/resolve_address.h"
 #include "core/linux/epoll.h"
+#include "core/resolve_address.h"
+#include "core/service.h"
 #include "util/list_entry.h"
 #include "util/status.h"
 #include "util/sync.h"
@@ -40,7 +40,7 @@ public:
     void Shutdown();
 
 private:
-    void DoPolling();
+    void DoPolling(void* ptr);
     void ProcessEpollEvents(void* ptr, uint32_t events);
     int AcceptEx(
         int fd,

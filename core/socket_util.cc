@@ -29,13 +29,13 @@
 
 #ifdef _WIN32
 const char* raptor_inet_ntop(int af, const void* src, char* dst, size_t size) {
-  /* Windows InetNtopA wants a mutable ip pointer */
-  return InetNtopA(af, (void*)src, dst, size);
+    /* Windows InetNtopA wants a mutable ip pointer */
+    return InetNtopA(af, (void*)src, dst, size);
 }
 #else
 const char* raptor_inet_ntop(int af, const void* src, char* dst, size_t size) {
-  GPR_ASSERT(size <= (socklen_t)-1);
-  return inet_ntop(af, src, dst, static_cast<socklen_t>(size));
+    RAPTOR_ASSERT(size <= (socklen_t)-1);
+    return inet_ntop(af, src, dst, static_cast<socklen_t>(size));
 }
 #endif
 

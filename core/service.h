@@ -19,6 +19,8 @@
 #ifndef __RAPTOR_CORE_SERVICE__
 #define __RAPTOR_CORE_SERVICE__
 
+#include <time.h>
+
 #include "core/cid.h"
 #include "core/sockaddr.h"
 #include "core/resolve_address.h"
@@ -49,6 +51,7 @@ public:
     virtual void OnErrorEvent(void* ptr) = 0;
     virtual void OnRecvEvent(void* ptr) = 0;
     virtual void OnSendEvent(void* ptr) = 0;
+    virtual void OnCheckingEvent(time_t current) = 0;
 };
 
 // for iocp
@@ -58,6 +61,7 @@ public:
     virtual void OnErrorEvent(void* ptr, size_t err_code) = 0;
     virtual void OnRecvEvent(void* ptr, size_t transferred_bytes) = 0;
     virtual void OnSendEvent(void* ptr, size_t transferred_bytes) = 0;
+    virtual void OnCheckingEvent(time_t current) = 0;
 };
 
 // async connect

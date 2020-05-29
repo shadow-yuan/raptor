@@ -17,6 +17,7 @@
  */
 
 #include "core/linux/epoll_thread.h"
+#include "util/time.h"
 
 namespace raptor {
 SendRecvThread::SendRecvThread(internal::IEpollReceiver* rcv)
@@ -34,11 +35,7 @@ RefCountedPtr<Status> SendRecvThread::Init() {
     auto e = _epoll.create();
     if (e == RAPTOR_ERROR_NONE) {
         _thd = Thread("send/recv",
-            [] (void* param) -> void {
-                SendRecvThread* pthis = (SendRecvThread*)param;
-                pthis->DoWork();
-            },
-            this);
+            std::bind(&SendRecvThread::DoWork, this, std::placeholders::_1), nullptr);
     }
     return e;
 }
@@ -58,8 +55,12 @@ void SendRecvThread::Shutdown() {
     }
 }
 
-void SendRecvThread::DoWork() {
+void SendRecvThread::DoWork(void* ptr) {
     while (!_shutdown) {
+        
+        time_t current_time = Now();
+        _receiver->OnCheckingEvent(current_time);
+
         int number_of_fd = _epoll.polling();
         if (_shutdown) {
             return;
@@ -74,7 +75,7 @@ void SendRecvThread::DoWork() {
             if (ev->events & EPOLLERR
                 || ev->events & EPOLLHUP
                 || ev->events & EPOLLRDHUP) {
-                _receiver->OnError(ev->data.ptr);
+                _receiver->OnErrorEvent(ev->data.ptr);
                 continue;
             }
             if (ev->events & EPOLLIN) {

@@ -23,10 +23,10 @@
 #include <sys/socket.h>
 #include "core/linux/epoll_thread.h"
 #include "core/linux/socket_setting.h"
-#include "util/sync.h"
-#include "plugin/protocol.h"
-#include "util/time.h"
+#include "raptor/protocol.h"
 #include "util/log.h"
+#include "util/sync.h"
+#include "util/time.h"
 
 namespace raptor {
 Connection::Connection(internal::INotificationTransfer* service)
@@ -52,35 +52,33 @@ void Connection::Init(
     _rcv_thd = r;
     _snd_thd = s;
 
-    _rcv_thd->Add(fd, (void*)this, EPOLLIN | EPOLLET);
-    _snd_thd->Add(fd, (void*)this, EPOLLOUT | EPOLLET);
+    _rcv_thd->Add(fd, (void*)_cid, EPOLLIN | EPOLLET);
+    _snd_thd->Add(fd, (void*)_cid, EPOLLOUT | EPOLLET);
 
     _addr = *addr;
 
     _service->OnConnectionArrived(_cid, &_addr);
 }
 
-bool Connection::Send(Slice header, const void* ptr, size_t len) {
+bool Connection::Send(const void* ptr, size_t len) {
+    if (!IsOnline()) return false;
     AutoMutex g(&_snd_mutex);
-    _snd_buffer.AddSlice(header);
+    Slice hdr = _proto->BuildPackageHeader(len);
+    _snd_buffer.AddSlice(hdr);
     _snd_buffer.AddSlice(Slice(ptr, len));
-    _snd_thd->Modify(_fd, (void*)this, EPOLLOUT | EPOLLET);
+    _snd_thd->Modify(_fd, (void*)_cid, EPOLLOUT | EPOLLET);
     return true;
 }
 
-void Connection::Close(bool notify) {
+void Connection::Shutdown(bool notify) {
     if (_fd < 0) {
         return;
     }
 
-    if (_rcv_thd) {
-        _rcv_thd->Delete(_fd, EPOLLIN | EPOLLET);
-    }
-    if (_snd_thd) {
-        _snd_thd->Delete(_fd, EPOLLOUT | EPOLLET);
-    }
-
-    if (notify && _service) {
+    _rcv_thd->Delete(_fd, EPOLLIN | EPOLLET);
+    _snd_thd->Delete(_fd, EPOLLOUT | EPOLLET);
+    
+    if (notify) {
         _service->OnConnectionClosed(_cid);
     }
 
@@ -90,10 +88,13 @@ void Connection::Close(bool notify) {
     memset(&_addr, 0, sizeof(_addr));
 
     ReleaseBuffer();
+
+    _user_data = 0;
+    _extend_ptr = nullptr;
 }
 
 bool Connection::IsOnline() {
-    return (_fd != -1);
+    return (_fd > 0);
 }
 
 const raptor_resolved_address* Connection::GetAddress() {
@@ -111,20 +112,23 @@ void Connection::ReleaseBuffer() {
     }
 }
 
-void Connection::DoRecvEvent() {
+bool Connection::DoRecvEvent() {
     int result = OnRecv();
     if (result == 0) {
-        _rcv_thd->Modify(_fd, (void*)this, EPOLLIN | EPOLLET);
-    } else {
-        Close(true);
+        _rcv_thd->Modify(_fd, (void*)_cid, EPOLLIN | EPOLLET);
+        return true;
     }
+    Shutdown(true);
+    return false;
 }
 
-void Connection::DoSendEvent() {
+bool Connection::DoSendEvent() {
     int result = OnSend();
     if (result != 0) {
-        // close connection
+        Shutdown(true);
+        return false;
     }
+    return true;
 }
 
 int Connection::OnRecv() {
@@ -155,7 +159,7 @@ int Connection::OnRecv() {
         size_t cache_size = _rcv_buffer.GetBufferLength();
         while (cache_size > 0) {
 
-            Slice obj = _rcv_buffer.GetHeader(_proto->GetHeaderSize());
+            Slice obj = _rcv_buffer.GetHeader(_proto->GetMaxHeaderSize());
             if (obj.Empty()) {
                 // need more data
                 break;
