@@ -47,7 +47,7 @@ TcpServer::TcpServer(ITcpServerService *service, Protocol* proto)
 TcpServer::~TcpServer() {
     if (!_shutdown) {
         Shutdown();
-    }    
+    }
 }
 
 RefCountedPtr<Status> TcpServer::Init(const RaptorOptions* options) {
@@ -446,7 +446,7 @@ uint32_t TcpServer::CheckConnectionId(ConnectionId cid) const {
         return failure;
     }
 
-    uint16_t uid = core::GetUserId(cid);
+    uint32_t uid = core::GetUserId(cid);
     if (uid >= _options.max_connections) {
         return failure;
     }

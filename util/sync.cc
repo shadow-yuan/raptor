@@ -26,7 +26,7 @@ int RaptorCondVarWait(
     if (timeout_ms < 0) {
         SleepConditionVariableCS(cv, mutex, INFINITE);
     } else {
-        timeout = SleepConditionVariableCS(cv, mutex, timeout_ms);
+        timeout = SleepConditionVariableCS(cv, mutex, static_cast<DWORD>(timeout_ms));
     }
     return timeout;
 }
@@ -36,7 +36,7 @@ struct raptor_init_once_parameter {
     void (*init_function)(void);
 };
 
-static BOOL CALLBACK RaptorInitOnceCallback(raptor_once_t* InitOnce, void* Parameter, void** Context) {
+static BOOL CALLBACK RaptorInitOnceCallback(raptor_once_t* , void* Parameter, void** ) {
     struct raptor_init_once_parameter* p = (struct raptor_init_once_parameter*)Parameter;
     p->init_function();
     return TRUE;

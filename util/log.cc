@@ -21,17 +21,15 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#ifdef _WIN32
-#include <processthreadsapi.h>
-#include <winsock.h>
-#else
-#include <pthread.h>
-#include <sys/time.h>
-#endif
-#include <time.h>
 #include "util/alloc.h"
 #include "util/atomic.h"
 #include "util/time.h"
+
+#ifdef _WIN32
+#include <processthreadsapi.h>
+#else
+#include <pthread.h>
+#endif
 
 namespace raptor {
 namespace {
@@ -151,12 +149,12 @@ void LogFormatPrint(
 #endif
 
     if (g_min_level.Load() <= static_cast<intptr_t>(level)) {
-        LogArgument args;
-        args.file = file;
-        args.line = line;
-        args.level = level;
-        args.message = message;
-        ((LogTransferFunction)g_log_function.Load())(&args);
+        LogArgument tmp;
+        tmp.file = file;
+        tmp.line = line;
+        tmp.level = level;
+        tmp.message = message;
+        ((LogTransferFunction)g_log_function.Load())(&tmp);
     }
     Free(message);
 }

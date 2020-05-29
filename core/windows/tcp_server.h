@@ -15,31 +15,30 @@
  * limitations under the License.
  *
  */
+
 #pragma once
 #include <stdint.h>
+#include <time.h>
+
+#include <list>
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
-#include <map>
 
-#include "core/resolve_address.h"
-#include "core/windows/iocp.h"
-#include "core/windows/tcp_listen.h"
-#include "core/cid.h"
-#include "core/windows/connection.h"
 #include "core/mpscq.h"
+#include "core/resolve_address.h"
+#include "core/windows/connection.h"
 #include "core/windows/iocp_thread.h"
+#include "util/atomic.h"
 #include "util/sync.h"
-#include "util/thread.h"
 #include "util/time.h"
 #include "util/status.h"
-#include "raptor/service.h"
 #include "raptor/protocol.h"
-#include "util/atomic.h"
+#include "raptor/service.h"
 
 namespace raptor {
-class Slice;
 class TcpListener;
 struct TcpMessageNode;
 class TcpServer : public internal::IAcceptor
@@ -66,6 +65,7 @@ public:
     void OnErrorEvent(void* ptr, size_t err_code) override;
     void OnRecvEvent(void* ptr, size_t transferred_bytes) override;
     void OnSendEvent(void* ptr, size_t transferred_bytes) override;
+    void OnCheckingEvent(time_t current) override;
 
     // internal::INotificationTransfer impl
     void OnConnectionArrived(ConnectionId cid, const raptor_resolved_address* addr) override;
@@ -80,21 +80,16 @@ public:
 
 private:
 
-    void TimeoutCheckThread(void*);
     void MessageQueueThread(void*);
     uint32_t CheckConnectionId(ConnectionId cid) const;
     void Dispatch(struct TcpMessageNode* msg);
+    void DeleteConnection(uint32_t index);
 
 private:
 
     using TimeoutRecord = std::multimap<time_t, uint32_t>;
-    struct ConnectionData {
-        Connection* con;
-        TimeoutRecord::iterator iter;
-        ConnectionData() {
-            con = nullptr;
-        }
-    };
+    using ConnectionData =
+        std::pair<Connection*, TimeoutRecord::iterator>;
 
     enum { RESERVED_CONNECTION_COUNT = 100 };
 
@@ -112,7 +107,6 @@ private:
 
     std::shared_ptr<SendRecvThread> _rs_thread;
     std::shared_ptr<TcpListener> _listener;
-    Thread _timeout_thread;
 
     Mutex _conn_mtx;
     std::vector<ConnectionData> _mgr;
@@ -120,5 +114,6 @@ private:
     TimeoutRecord _timeout_record_list;
     std::list<uint32_t> _free_index_list;
     uint16_t _magic_number;
+    Atomic<time_t> _last_timeout_time;
 };
 } // namespace raptor

@@ -15,7 +15,9 @@
  * limitations under the License.
  *
  */
+
 #include "core/windows/tcp_server.h"
+#include "core/windows/tcp_listener.h"
 #include "util/alloc.h"
 #include "util/cpu.h"
 #include "util/log.h"
@@ -74,12 +76,6 @@ raptor_error TcpServer::Init(const RaptorOptions* options){
             std::bind(&TcpServer::MessageQueueThread, this, std::placeholders::_1)
             , nullptr);
 
-    _timeout_thread = Thread(
-            "timeout_checking",
-            std::bind(&TcpServer::TimeoutCheckThread, this, std::placeholders::_1)
-            , nullptr);
-
-
     _conn_mtx.Lock();
     _mgr.resize(RESERVED_CONNECTION_COUNT);
     for (size_t i = 0; i < RESERVED_CONNECTION_COUNT; i++) {
@@ -89,6 +85,7 @@ raptor_error TcpServer::Init(const RaptorOptions* options){
 
     time_t n = Now();
     _magic_number = (n >> 16) & 0xffff;
+    _last_timeout_time.Store(n);
     return RAPTOR_ERROR_NONE;
 }
 
@@ -123,7 +120,6 @@ raptor_error TcpServer::Start() {
         return RAPTOR_ERROR_FROM_STATIC_STRING("failed to start rs_thread");
     }
     _mq_thd.Start();
-    _timeout_thread.Start();
     return RAPTOR_ERROR_NONE;
 }
 
@@ -134,15 +130,14 @@ void TcpServer::Shutdown(){
         _rs_thread->Shutdown();
         _cv.Signal();
         _mq_thd.Join();
-        _timeout_thread.Join();
 
         _conn_mtx.Lock();
         _timeout_record_list.clear();
         _free_index_list.clear();
         for (auto& obj : _mgr) {
-            if (obj.con) {
-                obj.con->Shutdown(false);
-                delete obj.con;
+            if (obj.first) {
+                obj.first->Shutdown(false);
+                delete obj.first;
             }
         }
         _mgr.clear();
@@ -167,8 +162,8 @@ bool TcpServer::Send(ConnectionId cid, const void* buf, size_t len) {
         return false;
     }
 
-    if (_mgr[index].con) {
-        return _mgr[index].con->Send(buf, len);
+    if (_mgr[index].first) {
+        return _mgr[index].first->Send(buf, len);
     }
     return false;
 }
@@ -180,13 +175,11 @@ bool TcpServer::CloseConnection(ConnectionId cid){
     }
 
     AutoMutex g(&_conn_mtx);
-    if (_mgr[index].con) {
-        _mgr[index].con->Shutdown(false);
-        _timeout_record_list.erase(_mgr[index].iter);
-        _free_index_list.push_back(index);
-        return true;
+    if (_mgr[index].first) {
+        _mgr[index].first->Shutdown(false);
+        DeleteConnection(index);
     }
-    return false;
+    return true;
 }
 
 // internal::IAcceptor impl
@@ -205,6 +198,8 @@ void TcpServer::OnNewConnection(
         size_t expand = ((count * 2) < _options.max_connections) ? (count * 2) : _options.max_connections;
         _mgr.resize(expand);
         for (size_t i = count; i < expand; i++) {
+            _mgr[i].first = nullptr;
+            _mgr[i].second = _timeout_record_list.end();
             _free_index_list.push_back(i);
         }
     }
@@ -212,31 +207,30 @@ void TcpServer::OnNewConnection(
     uint32_t index = _free_index_list.front();
     _free_index_list.pop_front();
 
+    ConnectionId cid = core::BuildConnectionId(
+        _magic_number, static_cast<uint16_t>(listen_port), index);
 
-    ConnectionId cid = core::BuildConnectionId(_magic_number, listen_port, index);
     time_t deadline_second = Now() + _options.connection_timeout;
-    TimeoutRecord::iterator iter = _timeout_record_list.insert({deadline_second, index});
 
-    if (!_mgr[index].con) {
-        _mgr[index].con = new Connection(this);
-        _mgr[index].iter = iter;
-        _mgr[index].con->SetProtocol(_proto);
-    }
+    std::unique_ptr<Connection> conn (new Connection(this));
+    conn->Init(cid, sock, addr);
+    conn->SetProtocol(_proto);
 
-    Connection* conn = _mgr[index].con;
-
-    // Connect with IOCP
+    // associate with iocp
     _rs_thread->Add(sock, (void*)cid);
 
-    if (!conn->Init(cid, sock, addr)) {
-        raptor_set_socket_shutdown(sock);
+    // submit the first asynchronous read
+    if (conn->AsyncRecv()) {
+        conn->Shutdown(true);
         _free_index_list.push_back(index);
-        return;
+    } else {
+        _mgr[index].first = conn.release();
+        _mgr[index].second = _timeout_record_list.insert({deadline_second, index});
     }
 }
 
 // internal::IIocpReceiver impl
-void TcpServer::OnErrorEvent(void* ptr, size_t err_code) {
+void TcpServer::OnErrorEvent(void* ptr, size_t ) {
     ConnectionId cid = (ConnectionId)ptr;
     uint32_t index = CheckConnectionId(cid);
     if (index == InvalidIndex) {
@@ -245,10 +239,9 @@ void TcpServer::OnErrorEvent(void* ptr, size_t err_code) {
     }
 
     AutoMutex g(&_conn_mtx);
-    if (_mgr[index].con) {
-        _mgr[index].con->Shutdown(true);
-        _timeout_record_list.erase(_mgr[index].iter);
-        _free_index_list.push_back(index);
+    if (_mgr[index].first) {
+        _mgr[index].first->Shutdown(true);
+        DeleteConnection(index);
     }
 }
 
@@ -259,18 +252,16 @@ void TcpServer::OnRecvEvent(void* ptr, size_t transferred_bytes) {
         log_error("tcpserver: OnRecvEvent found invalid index, cid = %x", cid);
         return;
     }
-    _conn_mtx.Lock();
-    auto conn = _mgr[index].con;
-    auto iter = _mgr[index].iter;
-    _conn_mtx.Unlock();
 
-    if (conn->OnRecvEvent(transferred_bytes)) {
+    AutoMutex g(&_conn_mtx);
+    if (!_mgr[index].first->OnRecvEvent(transferred_bytes)) {
         log_error("tcpserver: Failed to post async recv");
-        conn->Shutdown(true);
-
-        AutoMutex g(&_conn_mtx);
-        _timeout_record_list.erase(iter);
-        _free_index_list.push_back(index);
+        _mgr[index].first->Shutdown(true);
+        DeleteConnection(index);
+    } else {
+        time_t deadline_seconds = Now() + _options.connection_timeout;
+        _timeout_record_list.erase(_mgr[index].second);
+        _mgr[index].second = _timeout_record_list.insert({deadline_seconds, index});
     }
 }
 
@@ -282,18 +273,40 @@ void TcpServer::OnSendEvent(void* ptr, size_t transferred_bytes) {
         return;
     }
 
-    _conn_mtx.Lock();
-    auto conn = _mgr[index].con;
-    auto iter = _mgr[index].iter;
-    _conn_mtx.Unlock();
-
-    if (!conn->OnSendEvent(transferred_bytes)) {
+    AutoMutex g(&_conn_mtx);
+    if (!_mgr[index].first->OnSendEvent(transferred_bytes)) {
         log_error("tcpserver: Failed to post async send");
-        conn->Shutdown(true);
+        _mgr[index].first->Shutdown(true);
+        DeleteConnection(index);
+    } else {
+        time_t deadline_seconds = Now() + _options.connection_timeout;
+        _timeout_record_list.erase(_mgr[index].second);
+        _mgr[index].second = _timeout_record_list.insert({deadline_seconds, index});
+    }
+}
 
-        AutoMutex g(&_conn_mtx);
-        _timeout_record_list.erase(iter);
-        _free_index_list.push_back(index);
+void TcpServer::OnCheckingEvent(time_t current) {
+
+    // At least 1s to check once
+    if (current - _last_timeout_time.Load() < 1) {
+        return;
+    }
+    _last_timeout_time.Store(current);
+
+    AutoMutex g(&_conn_mtx);
+
+    auto it = _timeout_record_list.begin();
+    while (it != _timeout_record_list.end()) {
+        if (it->first > current) {
+            break;
+        }
+
+        uint32_t index = it->second;
+
+        ++it;
+
+        _mgr[index].first->Shutdown(true);
+        DeleteConnection(index);
     }
 }
 
@@ -327,14 +340,22 @@ void TcpServer::OnConnectionClosed(ConnectionId cid) {
     _cv.Signal();
 }
 
+void TcpServer::DeleteConnection(uint32_t index) {
+    delete _mgr[index].first;
+    _mgr[index].first = nullptr;
+    _timeout_record_list.erase(_mgr[index].second);
+    _mgr[index].second = _timeout_record_list.end();
+    _free_index_list.push_back(index);
+}
+
 bool TcpServer::SetUserData(ConnectionId cid, void* ptr) {
     uint32_t index = CheckConnectionId(cid);
     if (index == InvalidIndex) {
         return false;
     }
 
-    if (_mgr[index].con) {
-        _mgr[index].con->SetUserData(ptr);
+    if (_mgr[index].first) {
+        _mgr[index].first->SetUserData(ptr);
         return true;
     }
     return false;
@@ -346,8 +367,8 @@ bool TcpServer::GetUserData(ConnectionId cid, void** ptr) const {
         return false;
     }
 
-    if (_mgr[index].con) {
-        _mgr[index].con->GetUserData(ptr);
+    if (_mgr[index].first) {
+        _mgr[index].first->GetUserData(ptr);
         return true;
     }
     return false;
@@ -359,8 +380,8 @@ bool TcpServer::SetExtendInfo(ConnectionId cid, uint64_t data) {
         return false;
     }
 
-    if (_mgr[index].con) {
-        _mgr[index].con->SetExtendInfo(data);
+    if (_mgr[index].first) {
+        _mgr[index].first->SetExtendInfo(data);
         return true;
     }
     return false;
@@ -372,8 +393,8 @@ bool TcpServer::GetExtendInfo(ConnectionId cid, uint64_t& data) const {
         return false;
     }
 
-    if (_mgr[index].con) {
-        _mgr[index].con->GetExtendInfo(data);
+    if (_mgr[index].first) {
+        _mgr[index].first->GetExtendInfo(data);
         return true;
     }
     return false;
@@ -389,17 +410,11 @@ uint32_t TcpServer::CheckConnectionId(ConnectionId cid) const {
         return failure;
     }
 
-    uint16_t index = core::GetUserId(cid);
+    uint32_t index = core::GetUserId(cid);
     if (index >= _options.max_connections) {
         return failure;
     }
     return index;
-}
-
-void TcpServer::TimeoutCheckThread(void*) {
-    while (!_shutdown) {
-
-    }
 }
 
 void TcpServer::MessageQueueThread(void*) {

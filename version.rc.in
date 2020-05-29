@@ -1,0 +1,35 @@
+#define VS_VERSION_INFO 0x1L
+#ifndef DEBUG
+#define VER_DEBUG 0
+#else
+#define VER_DEBUG 0x1L
+#endif
+
+VS_VERSION_INFO VERSIONINFO
+  FILEVERSION    @RAPTOR_RC_FILEVERSION@
+  PRODUCTVERSION @RAPTOR_RC_FILEVERSION@
+  FILEFLAGSMASK  0x3fL
+  FILEFLAGS      VER_DEBUG
+  FILEOS 0x40004L
+  FILETYPE 0x2L
+  FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "FileDescription", "Compiled with @CMAKE_CXX_COMPILER_ID@ @CMAKE_CXX_COMPILER_VERSION@\0"
+            VALUE "FileVersion", "@RAPTOR_VERSION@\0"
+            VALUE "InternalName", "raptor.dll"
+            VALUE "LegalCopyright", "Copyright (C) 2020 The Raptor Authors. All rights reserved.\0"
+            VALUE "OriginalFilename", "raptor.dll"
+            VALUE "ProductName", "raptor - A Cross-platform Network Library"
+            VALUE "ProductVersion", "@RAPTOR_VERSION@\0"
+            VALUE "Info", "https://github.com/shadow-yuan/raptor/\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END

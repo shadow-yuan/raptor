@@ -45,7 +45,7 @@ Connection::Connection(internal::INotificationTransfer* service)
 
 Connection::~Connection() {}
 
-bool Connection::Init(ConnectionId cid, SOCKET sock, const raptor_resolved_address* addr) {
+void Connection::Init(ConnectionId cid, SOCKET sock, const raptor_resolved_address* addr) {
     _cid = cid;
     _fd = sock;
     _addr = *addr;
@@ -57,12 +57,7 @@ bool Connection::Init(ConnectionId cid, SOCKET sock, const raptor_resolved_addre
     for(size_t i = 0; i < DEFAULT_TEMP_SLICE_COUNT; i++) {
         _tmp_buffer[i] = MakeSliceByDefaultSize();
     }
-
-    if (AsyncRecv()) {
-        _service->OnConnectionArrived(cid, &_addr);
-        return true;
-    }
-    return false;
+    _service->OnConnectionArrived(cid, &_addr);
 }
 
 void Connection::SetProtocol(Protocol* p) {

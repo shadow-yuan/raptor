@@ -68,7 +68,7 @@ Slice::Slice(const char* ptr, size_t len) {
 
     if (len <= SLICE_INLINED_SIZE) {
         _refs = nullptr;
-        _data.inlined.length = len;
+        _data.inlined.length = static_cast<uint8_t>(len);
         if (ptr) {
             memcpy(_data.inlined.bytes, ptr, len);
         }
@@ -177,7 +177,7 @@ Slice MakeSliceByLength(size_t len) {
     Slice s;
     if (len <= Slice::SLICE_INLINED_SIZE) {
         s._refs = nullptr;
-        s._data.inlined.length = len;
+        s._data.inlined.length = static_cast<uint8_t>(len);
     } else {
         s._refs = (SliceRefCount*)Malloc(sizeof(SliceRefCount) + len);
         new (s._refs) SliceRefCount;
@@ -213,7 +213,7 @@ Slice operator- (Slice s1, size_t length) {
     Slice s;
     if (len <= Slice::SLICE_INLINED_SIZE) {
         s._refs = nullptr;
-        s._data.inlined.length = len;
+        s._data.inlined.length = static_cast<uint8_t>(len);
         memcpy(s._data.inlined.bytes, s1.begin() + length, len);
     } else {
         s = s1;

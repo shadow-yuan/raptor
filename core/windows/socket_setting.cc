@@ -45,7 +45,7 @@ void raptor_global_socket_shutdown() {
 
 /* set a socket to non blocking mode */
 raptor_error raptor_set_socket_nonblocking(SOCKET fd, int non_blocking) {
-    uint32_t param = 1;
+    uint32_t param = non_blocking ? 1 : 0;
     DWORD BytesReturned;
     int status = WSAIoctl(fd, FIONBIO, &param, sizeof(param), NULL, 0, &BytesReturned,
                     NULL, NULL);
@@ -55,6 +55,8 @@ raptor_error raptor_set_socket_nonblocking(SOCKET fd, int non_blocking) {
 }
 
 raptor_error raptor_set_socket_cloexec(SOCKET fd, int close_on_exec) {
+    (void)fd;
+    (void)close_on_exec;
     return RAPTOR_ERROR_NONE;
 }
 
@@ -140,6 +142,8 @@ void raptor_set_socket_shutdown(SOCKET fd) {
 }
 
 raptor_error raptor_set_socket_tcp_user_timeout(SOCKET fd, int timeout) {
+    (void)fd;
+    (void)timeout;
     return RAPTOR_ERROR_NONE;
 }
 

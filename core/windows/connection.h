@@ -37,7 +37,7 @@ public:
     ~Connection();
 
     // Before Init, sock must be associated with iocp
-    bool Init(ConnectionId cid, SOCKET sock, const raptor_resolved_address* addr);
+    void Init(ConnectionId cid, SOCKET sock, const raptor_resolved_address* addr);
     void SetProtocol(Protocol* p);
     void Shutdown(bool notify);
 

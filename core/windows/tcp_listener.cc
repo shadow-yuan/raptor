@@ -16,7 +16,7 @@
  *
  */
 
-#include "core/windows/tcp_listen.h"
+#include "core/windows/tcp_listener.h"
 #include <string.h>
 #include <memory>
 #include "core/windows/socket_setting.h"
@@ -219,7 +219,7 @@ raptor_error TcpListener::GetExtensionFunction(SOCKET fd) {
     return RAPTOR_ERROR_NONE;
 }
 
-void TcpListener::WorkThread(void* ptr) {
+void TcpListener::WorkThread(void*) {
     while (!_shutdown) {
         DWORD NumberOfBytesTransferred = 0;
         ListenerObject* CompletionKey = NULL;
