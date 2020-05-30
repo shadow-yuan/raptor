@@ -77,7 +77,7 @@ void Connection::Shutdown(bool notify) {
 
     _rcv_thd->Delete(_fd, EPOLLIN | EPOLLET);
     _snd_thd->Delete(_fd, EPOLLOUT | EPOLLET);
-    
+
     if (notify) {
         _service->OnConnectionClosed(_cid);
     }
@@ -165,22 +165,20 @@ int Connection::OnRecv() {
                 break;
             }
 
-            size_t pack_len = (size_t)_proto->CheckPackageLength(&obj);
-            if (cache_size < pack_len) {
+            int pack_len = _proto->CheckPackageLength(&obj);
+            if (pack_len <= 0) {
+                log_error("connection: internal protocol error(pack_len = %d)", pack_len);
+                return -1;
+            }
+
+            if (cache_size < (size_t)pack_len) {
                 // need more data
                 break;
-            } else if (pack_len == 0) {
-                log_error("connection: internal protocol error(pack_len = 0)");
-                return -1;
-            } else if (cache_size == pack_len) {
-                obj = _rcv_buffer.Merge();
-                _service->OnDataReceived(_cid, &obj);
-                _rcv_buffer.ClearBuffer();
-            } else {
-                obj = _rcv_buffer.GetHeader(pack_len);
-                _service->OnDataReceived(_cid, &obj);
-                _rcv_buffer.MoveHeader(pack_len);
             }
+
+            Slice package = _rcv_buffer.GetHeader((size_t)pack_len);
+            _service->OnDataReceived(_cid, &package);
+            _rcv_buffer.MoveHeader((size_t)pack_len);
             cache_size = _rcv_buffer.GetBufferLength();
         }
     } while (recv_bytes == unused_space);

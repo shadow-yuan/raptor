@@ -194,19 +194,26 @@ bool Connection::OnRecvEvent(size_t size) {
         _recv_buffer.AddSlice(s);
     }
 
-    ParsingProtocol();
+    if (!ParsingProtocol()) {
+        return false;
+    }
     return AsyncRecv();
 }
 
-void Connection::ParsingProtocol() {
+bool Connection::ParsingProtocol() {
     size_t cache_size = _recv_buffer.GetBufferLength();
     while (cache_size > 0) {
         Slice obj = _recv_buffer.GetHeader(_proto->GetMaxHeaderSize());
         if (obj.Empty()) {
             break;
         }
-        size_t pack_len = _proto->CheckPackageLength(&obj);
-        if (cache_size < pack_len) {
+        int pack_len = _proto->CheckPackageLength(&obj);
+        if (pack_len <= 0) {
+            log_error("connection: internal protocol error(pack_len = %d)", pack_len);
+            return false;
+        }
+
+        if (cache_size < (size_t)pack_len) {
             break;
         }
 
@@ -215,6 +222,7 @@ void Connection::ParsingProtocol() {
         _recv_buffer.MoveHeader(pack_len);
         cache_size = _recv_buffer.GetBufferLength();
     }
+    return true;
 }
 
 void Connection::SetUserData(void* ptr) {

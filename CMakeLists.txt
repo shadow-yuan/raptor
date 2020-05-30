@@ -65,6 +65,7 @@ if (WIN32)
         "${PROJECT_SOURCE_DIR}/core/windows/iocp_thread.cc"
         "${PROJECT_SOURCE_DIR}/core/windows/iocp.cc"
         "${PROJECT_SOURCE_DIR}/core/windows/socket_setting.cc"
+        "${PROJECT_SOURCE_DIR}/core/windows/tcp_client.cc"
         "${PROJECT_SOURCE_DIR}/core/windows/tcp_listener.cc"
         "${PROJECT_SOURCE_DIR}/core/windows/tcp_server.cc"
     )
@@ -76,6 +77,7 @@ else()
         "${PROJECT_SOURCE_DIR}/core/linux/epoll_thread.cc"
         "${PROJECT_SOURCE_DIR}/core/linux/epoll.cc"
         "${PROJECT_SOURCE_DIR}/core/linux/socket_setting.cc"
+        "${PROJECT_SOURCE_DIR}/core/linux/tcp_client.cc"
         "${PROJECT_SOURCE_DIR}/core/linux/tcp_listener.cc"
         "${PROJECT_SOURCE_DIR}/core/linux/tcp_server.cc"
     )

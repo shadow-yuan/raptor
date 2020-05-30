@@ -282,7 +282,9 @@ bool TcpClient::DoRecv() {
         _rcv_buffer.AddSlice(s);
     }
 
-    ParsingProtocol();
+    if (!ParsingProtocol()) {
+        return false;
+    }
     return AsyncRecv();
 }
 
@@ -390,15 +392,19 @@ bool TcpClient::AsyncRecv() {
     return true;
 }
 
-void TcpClient::ParsingProtocol() {
+bool TcpClient::ParsingProtocol() {
     size_t cache_size = _rcv_buffer.GetBufferLength();
     while (cache_size > 0) {
         Slice obj = _rcv_buffer.GetHeader(_proto->GetMaxHeaderSize());
         if (obj.Empty()) {
             break;
         }
-        size_t pack_len = _proto->CheckPackageLength(&obj);
-        if (cache_size < pack_len) {
+        int pack_len = _proto->CheckPackageLength(&obj);
+        if (pack_len <= 0) {
+            log_error("tcp client: internal protocol error(pack_len = %d)", pack_len);
+            return false;
+        }
+        if (cache_size < (size_t)pack_len) {
             break;
         }
 
@@ -407,6 +413,7 @@ void TcpClient::ParsingProtocol() {
         _rcv_buffer.MoveHeader(pack_len);
         cache_size = _rcv_buffer.GetBufferLength();
     }
+    return false;
 }
 
 } // namespace raptor

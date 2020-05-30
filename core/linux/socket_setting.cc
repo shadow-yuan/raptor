@@ -297,9 +297,6 @@ static int get_max_accept_queue_size(void) {
     return s_max_accept_queue_size;
 }
 
-#define DEFAULT_CLIENT_TCP_USER_TIMEOUT_MS 20000 /* 20 seconds */
-#define DEFAULT_SERVER_TCP_USER_TIMEOUT_MS 20000 /* 20 seconds */
-
 /* Prepare a recently-created socket for listening. */
 raptor_error raptor_tcp_server_prepare_socket(
     int fd, const raptor_resolved_address* addr,
@@ -362,11 +359,74 @@ error:
     return err;
 }
 
-/*
-raptor_error raptor_tcp_prepare_socket(int fd) {
-    raptor_set_socket_no_sigpipe_if_possible(fd);
-    raptor_set_socket_nonblocking(fd, 1);
-    raptor_set_socket_reuse_addr(fd, 1);
-    raptor_set_socket_cloexec(fd, 1);
+static raptor_error tcp_client_prepare_socket(
+        const raptor_resolved_address* addr, int fd, int timeout_ms) {
+
+    raptor_error err = RAPTOR_ERROR_NONE;
+    if (timeout_ms <= 0) timeout_ms = DEFAULT_CLIENT_TCP_USER_TIMEOUT_MS;
+
+    err = raptor_set_socket_nonblocking(fd, 1);
+    if (err != RAPTOR_ERROR_NONE) goto error;
+    err = raptor_set_socket_cloexec(fd, 1);
+    if (err != RAPTOR_ERROR_NONE) goto error;
+
+    if (!raptor_is_unix_socket(addr)) {
+        err = raptor_set_socket_low_latency(fd, 1);
+        if (err != RAPTOR_ERROR_NONE) goto error;
+        err = raptor_set_socket_reuse_addr(fd, 1);
+        if (err != RAPTOR_ERROR_NONE) goto error;
+        err = raptor_set_socket_tcp_user_timeout(fd, timeout_ms);
+        if (err != RAPTOR_ERROR_NONE) goto error;
+    }
+
+    err = raptor_set_socket_no_sigpipe_if_possible(fd);
+    if (err != RAPTOR_ERROR_NONE) goto error;
+
+    goto done;
+
+error:
+    if (fd >= 0) {
+        close(fd);
+    }
+done:
+    return err;
 }
-*/
+
+raptor_error raptor_tcp_client_prepare_socket(
+                        const raptor_resolved_address* addr,
+                        raptor_resolved_address* mapped_addr,
+                        int* newfd, int timeout_ms) {
+    raptor_dualstack_mode dsmode;
+    raptor_error error;
+    int fd = -1;
+
+    *newfd = 0;
+
+    /* Use dualstack sockets where available. Set mapped to v6 or v4 mapped to
+        v6. */
+    if (!raptor_sockaddr_to_v4mapped(addr, mapped_addr)) {
+        /* addr is v4 mapped to v6 or v6. */
+        memcpy(mapped_addr, addr, sizeof(*mapped_addr));
+    }
+
+    error =
+        raptor_create_dualstack_socket(mapped_addr, SOCK_STREAM, 0, &dsmode, &fd);
+    if (error != RAPTOR_ERROR_NONE) {
+        return error;
+    }
+
+    if (dsmode == RAPTOR_DSMODE_IPV4) {
+        /* Original addr is either v4 or v4 mapped to v6. Set mapped_addr to v4. */
+        if (!raptor_sockaddr_is_v4mapped(addr, mapped_addr)) {
+            memcpy(mapped_addr, addr, sizeof(*mapped_addr));
+        }
+    }
+
+    error = tcp_client_prepare_socket(mapped_addr, fd, timeout_ms);
+    if (error != RAPTOR_ERROR_NONE) {
+        return error;
+    }
+
+    *newfd = fd;
+    return RAPTOR_ERROR_NONE;
+}

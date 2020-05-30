@@ -50,6 +50,9 @@ raptor_error raptor_set_socket_ipv6_only(int fd, int only);
 // shutdown fd
 void raptor_set_socket_shutdown(int fd);
 
+#define DEFAULT_CLIENT_TCP_USER_TIMEOUT_MS 20000 /* 20 seconds */
+#define DEFAULT_SERVER_TCP_USER_TIMEOUT_MS 20000 /* 20 seconds */
+
 /* Set TCP_USER_TIMEOUT */
 raptor_error raptor_set_socket_tcp_user_timeout(int fd, int timeout);
 
@@ -71,15 +74,14 @@ raptor_error raptor_create_dualstack_socket(
     const raptor_resolved_address* resolved_addr,
     int type, int protocol, raptor_dualstack_mode* dsmode, int* newfd);
 
-raptor_error raptor_create_socket(
-    const raptor_resolved_address* resolved_addr,
-    int* newfd, raptor_dualstack_mode* dsmode);
-
-//raptor_error raptor_tcp_prepare_socket(int fd);
-
 raptor_error raptor_tcp_server_prepare_socket(
                         int fd,
                         const raptor_resolved_address* addr,
                         int* port, int so_reuseport);
+
+raptor_error raptor_tcp_client_prepare_socket(
+                        const raptor_resolved_address* addr,
+                        raptor_resolved_address* mapped_addr,
+                        int* newfd, int timeout_ms);
 
 #endif  // __RAPTOR_CORE_SOCKET_SETTING__

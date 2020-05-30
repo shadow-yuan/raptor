@@ -41,38 +41,23 @@ public:
     bool IsOnline() const;
 private:
     void WorkThread(void* ptr);
-    raptor_error InternalConnect(const raptor_resolved_address* addr);
-    raptor_error GetConnectExIfNecessary(SOCKET s);
 
-    // network event
-    void OnConnectEvent(int err);
-    void OnCloseEvent(int err);
-    void OnReadEvent(int err);
-    void OnSendEvent(int err);
+    int DoSend();
+    int DoRecv();
 
-    bool AsyncSend();
-    bool AsyncRecv();
-
-    bool DoSend();
-    bool DoRecv();
-    bool ParsingProtocol();
+    raptor_error AsyncConnect(
+        const raptor_resolved_address* addr, int timeout_ms, int* new_fd);
 
 private:
-    enum { DEFAULT_TEMP_SLICE_COUNT = 2};
     ITcpClientService *_service;
     Protocol* _proto;
-    bool _send_pending;
-    bool _shutdown;
-    LPFN_CONNECTEX _connectex;
 
-    SOCKET _fd;
-    WSAEVENT _event;
+    bool _shutdown;
+    bool _is_connected;
+
+    int _fd;
 
     Thread _thd;
-
-    OVERLAPPED _conncet_overlapped;
-    OVERLAPPED _send_overlapped;
-    OVERLAPPED _recv_overlapped;
 
     Mutex _s_mtx;
     Mutex _r_mtx;
@@ -80,6 +65,5 @@ private:
     SliceBuffer _snd_buffer;
     SliceBuffer _rcv_buffer;
 
-    Slice _tmp_buffer[DEFAULT_TEMP_SLICE_COUNT];
 };
 } // namespace raptor

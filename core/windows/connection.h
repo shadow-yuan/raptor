@@ -54,7 +54,7 @@ private:
     bool OnSendEvent(size_t size);
     bool OnRecvEvent(size_t size);
 
-    void ParsingProtocol();
+    bool ParsingProtocol();
 
     bool AsyncSend();
     bool AsyncRecv();
