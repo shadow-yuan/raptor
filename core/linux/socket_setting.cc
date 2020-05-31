@@ -20,7 +20,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/time.h>
@@ -31,17 +30,6 @@
 #include "util/string.h"
 #include "core/socket_util.h"
 
-void raptor_global_socket_init() {
-#ifndef SO_NOSIGPIPE
-    signal(SIGPIPE, SIG_IGN);
-#endif
-}
-
-void raptor_global_socket_shutdown() {
-#ifndef SO_NOSIGPIPE
-    signal(SIGPIPE, SIG_DFL);
-#endif
-}
 
 /* set a socket to non blocking mode */
 raptor_error raptor_set_socket_nonblocking(int fd, int non_blocking) {

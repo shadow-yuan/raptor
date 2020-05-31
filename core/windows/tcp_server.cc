@@ -38,9 +38,9 @@ struct TcpMessageNode {
 };
 
 constexpr uint32_t InvalidIndex = static_cast<uint32_t>(-1);
-TcpServer::TcpServer(ITcpServerService *service, Protocol* proto)
+TcpServer::TcpServer(IServerReceiver *service)
     : _service(service)
-    , _proto(proto)
+    , _proto(nullptr)
     , _shutdown(true) {
 }
 
@@ -89,11 +89,10 @@ raptor_error TcpServer::Init(const RaptorOptions* options){
     return RAPTOR_ERROR_NONE;
 }
 
-raptor_error TcpServer::AddListening(const std::string& addr){
+raptor_error TcpServer::AddListening(const char* addr){
     if (_shutdown) return RAPTOR_ERROR_FROM_STATIC_STRING("tcp server uninitialized");
-    if (addr.empty()) return RAPTOR_ERROR_FROM_STATIC_STRING("invalid listening address");
     raptor_resolved_addresses* addrs;
-    auto ret = raptor_blocking_resolve_address(addr.c_str(), nullptr, &addrs);
+    auto ret = raptor_blocking_resolve_address(addr, nullptr, &addrs);
     if (ret != RAPTOR_ERROR_NONE) {
         return ret;
     }
@@ -154,6 +153,10 @@ void TcpServer::Shutdown(){
             }
         } while (!empty);
     }
+}
+
+void TcpServer::SetProtocol(IProtocol* proto) {
+    _proto = proto;
 }
 
 bool TcpServer::Send(ConnectionId cid, const void* buf, size_t len) {

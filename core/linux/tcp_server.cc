@@ -39,9 +39,9 @@ struct TcpMessageNode {
     Slice slice;
 };
 constexpr uint32_t InvalidIndex = static_cast<uint32_t>(-1);
-TcpServer::TcpServer(ITcpServerService *service, Protocol* proto)
+TcpServer::TcpServer(IServerReceiver *service)
     : _service(service)
-    , _proto(proto)
+    , _proto(nullptr)
     , _shutdown(true) {}
 
 TcpServer::~TcpServer() {
@@ -163,6 +163,10 @@ void TcpServer::Shutdown() {
             }
         } while (!empty);
     }
+}
+
+void TcpServer::SetProtocol(IProtocol* proto) {
+    _proto = proto;
 }
 
 bool TcpServer::Send(ConnectionId cid, const void* buf, size_t len) {

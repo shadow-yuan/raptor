@@ -16,29 +16,34 @@
  *
  */
 
-#pragma once
-#include <string>
+#ifndef __RAPTOR_CORE_WINDOWS_TCP_CLIENT__
+#define __RAPTOR_CORE_WINDOWS_TCP_CLIENT__
+
 #include "core/resolve_address.h"
-#include "core/sockaddr.h"
-#include "util/status.h"
-#include "util/thread.h"
 #include "core/slice/slice_buffer.h"
+#include "core/sockaddr.h"
+
+#include "util/status.h"
+#include "util/sync.h"
+#include "util/thread.h"
+
 #include "raptor/service.h"
 #include "raptor/protocol.h"
 #include "raptor/slice.h"
-#include "util/sync.h"
 
 namespace raptor{
 class TcpClient final {
 public:
-    TcpClient(ITcpClientService* service, Protocol* proto);
+    explicit TcpClient(IClientReceiver* service);
     ~TcpClient();
 
     raptor_error Init();
-    raptor_error Connect(const std::string& addr, size_t timeout_ms);
+    raptor_error Connect(const char* addr, size_t timeout_ms);
     bool Send(const void* buff, size_t len);
+    void SetProtocol(IProtocol* proto);
     void Shutdown();
     bool IsOnline() const;
+
 private:
     void WorkThread(void* ptr);
     raptor_error InternalConnect(const raptor_resolved_address* addr);
@@ -59,8 +64,8 @@ private:
 
 private:
     enum { DEFAULT_TEMP_SLICE_COUNT = 2};
-    ITcpClientService *_service;
-    Protocol* _proto;
+    IClientReceiver *_service;
+    IProtocol* _proto;
     bool _send_pending;
     bool _shutdown;
     LPFN_CONNECTEX _connectex;
@@ -83,3 +88,5 @@ private:
     Slice _tmp_buffer[DEFAULT_TEMP_SLICE_COUNT];
 };
 } // namespace raptor
+
+#endif  // __RAPTOR_CORE_WINDOWS_TCP_CLIENT__

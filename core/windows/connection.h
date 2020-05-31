@@ -29,7 +29,7 @@
 #include "util/sync.h"
 
 namespace raptor {
-class Protocol;
+class IProtocol;
 class Connection final {
     friend class TcpServer;
 public:
@@ -38,7 +38,7 @@ public:
 
     // Before Init, sock must be associated with iocp
     void Init(ConnectionId cid, SOCKET sock, const raptor_resolved_address* addr);
-    void SetProtocol(Protocol* p);
+    void SetProtocol(IProtocol* p);
     void Shutdown(bool notify);
 
     bool Send(const void* data, size_t len);
@@ -63,7 +63,7 @@ private:
     enum { DEFAULT_TEMP_SLICE_COUNT = 2 };
 
     internal::INotificationTransfer * _service;
-    Protocol* _proto;
+    IProtocol* _proto;
 
     ConnectionId _cid;
     bool _send_pending;

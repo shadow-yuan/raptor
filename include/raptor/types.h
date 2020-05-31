@@ -38,6 +38,21 @@ typedef struct {
 
 typedef raptor_options_t RaptorOptions;
 
+// server callback
+typedef void (*raptor_server_callback_connection_arrived)(raptor_connection_t c);
+typedef void (*raptor_server_callback_connection_closed)(raptor_connection_t c);
+typedef void (*raptor_server_callback_message_received)(raptor_connection_t c, const void* buffer, size_t length);
+
+// client callback
+typedef void (*raptor_client_callback_connect_result)(int result);
+typedef void (*raptor_client_callback_connection_closed)();
+typedef void (*raptor_client_callback_message_received)(const void* buffer, size_t length);
+
+// protocol callback
+typedef size_t (* raptor_protocol_callback_get_max_header_size)();
+typedef size_t (* raptor_protocol_callback_build_package_header)(char* header, size_t data_len);
+typedef int    (* raptor_protocol_callback_check_package_length)(const void* buff, size_t len);
+
 #ifdef __cplusplus
 }
 #endif

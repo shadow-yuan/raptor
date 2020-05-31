@@ -16,14 +16,15 @@
  *
  */
 
-#pragma once
+#ifndef __RAPTOR_CORE_WINDOWS_TCP_SERVER__
+#define __RAPTOR_CORE_WINDOWS_TCP_SERVER__
+
 #include <stdint.h>
 #include <time.h>
 
 #include <list>
 #include <map>
 #include <memory>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -39,19 +40,21 @@
 #include "raptor/service.h"
 
 namespace raptor {
+class IProtocol;
 class TcpListener;
 struct TcpMessageNode;
 class TcpServer : public internal::IAcceptor
                 , public internal::IIocpReceiver
                 , public internal::INotificationTransfer {
 public:
-    TcpServer(ITcpServerService *service, Protocol* proto);
+    explicit TcpServer(IServerReceiver *service);
     ~TcpServer();
 
     raptor_error Init(const RaptorOptions* options);
-    raptor_error AddListening(const std::string& addr);
+    raptor_error AddListening(const char* addr);
     raptor_error Start();
     void Shutdown();
+    void SetProtocol(IProtocol* proto);
 
     bool Send(ConnectionId cid, const void* buf, size_t len);
     bool CloseConnection(ConnectionId cid);
@@ -93,8 +96,8 @@ private:
 
     enum { RESERVED_CONNECTION_COUNT = 100 };
 
-    ITcpServerService* _service;
-    Protocol* _proto;
+    IServerReceiver* _service;
+    IProtocol* _proto;
 
     bool _shutdown;
     RaptorOptions _options;
@@ -117,3 +120,4 @@ private:
     Atomic<time_t> _last_timeout_time;
 };
 } // namespace raptor
+#endif  // __RAPTOR_CORE_WINDOWS_TCP_SERVER__

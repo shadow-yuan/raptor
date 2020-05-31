@@ -29,9 +29,6 @@
 
 constexpr DWORD RAPTOR_WSA_SOCKET_FLAGS = WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT;
 
-void raptor_global_socket_init();
-void raptor_global_socket_shutdown();
-
 /* set a socket to non blocking mode */
 raptor_error raptor_set_socket_nonblocking(SOCKET fd, int non_blocking);
 

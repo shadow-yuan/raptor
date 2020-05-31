@@ -22,9 +22,9 @@
 #include "core/linux/socket_setting.h"
 
 namespace raptor {
-TcpClient::TcpClient(ITcpClientService* service, Protocol* proto)
+TcpClient::TcpClient(IClientReceiver* service)
     : _service(service)
-    , _proto(proto)
+    , _proto(nullptr)
     , _shutdown(true)
     , _fd(-1) {
 }
@@ -46,16 +46,13 @@ raptor_error TcpClient::Init() {
     return RAPTOR_ERROR_NONE;
 }
 
-raptor_error TcpClient::Connect(const std::string& addr, size_t timeout_ms) {
+raptor_error TcpClient::Connect(const char* addr, size_t timeout_ms) {
     if (_shutdown) {
         return RAPTOR_ERROR_FROM_STATIC_STRING("TcpClient is not initialized");
     }
-    if (addr.empty()) {
-        return RAPTOR_ERROR_FROM_STATIC_STRING("Invalid parameter");
-    }
 
     raptor_resolved_addresses* addrs;
-    auto e = raptor_blocking_resolve_address(addr.c_str(), nullptr, &addrs);
+    auto e = raptor_blocking_resolve_address(addr, nullptr, &addrs);
     if (e != RAPTOR_ERROR_NONE) {
         return e;
     }
@@ -79,6 +76,10 @@ bool TcpClient::Send(const void* buff, size_t len) {
 
 bool TcpClient::IsOnline() const {
     return (_fd != -1);
+}
+
+void TcpClient::SetProtocol(IProtocol* proto) {
+    _proto = proto;
 }
 
 void TcpClient::Shutdown() {

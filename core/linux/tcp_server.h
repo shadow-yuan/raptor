@@ -16,7 +16,9 @@
  *
  */
 
-#pragma once
+#ifndef __RAPTOR_CORE_LINUX_TCP_SERVER__
+#define __RAPTOR_CORE_LINUX_TCP_SERVER__
+
 #include <time.h>
 #include <map>
 #include <memory>
@@ -33,13 +35,14 @@
 #include "raptor/service.h"
 
 namespace raptor {
+class IProtocol;
 class TcpListener;
 struct TcpMessageNode;
 class TcpServer : public internal::IAcceptor
                 , public internal::IEpollReceiver
                 , public internal::INotificationTransfer {
 public:
-    TcpServer(ITcpServerService *service, Protocol* proto);
+    explicit TcpServer(IServerReceiver *service);
     ~TcpServer();
 
     RefCountedPtr<Status> Init(const RaptorOptions* options);
@@ -47,6 +50,7 @@ public:
 
     raptor_error Start();
     void Shutdown();
+    void SetProtocol(IProtocol* proto);
 
     bool Send(ConnectionId cid, const void* buf, size_t len);
     bool CloseConnection(ConnectionId cid);
@@ -82,13 +86,13 @@ private:
 
 private:
     using TimeoutRecord = std::multimap<time_t, uint32_t>;
-    using ConnectionData = 
+    using ConnectionData =
         std::pair<Connection*, TimeoutRecord::iterator>;
 
     enum { RESERVED_CONNECTION_COUNT = 100 };
 
-    ITcpServerService* _service;
-    Protocol* _proto;
+    IServerReceiver* _service;
+    IProtocol* _proto;
 
     bool _shutdown;
     RaptorOptions _options;
@@ -113,3 +117,4 @@ private:
 };
 
 } // namespace raptor
+#endif  // __RAPTOR_CORE_LINUX_TCP_SERVER__

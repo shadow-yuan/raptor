@@ -105,11 +105,20 @@ set(
     "${PROJECT_SOURCE_DIR}/util/time.cc"
 )
 
+set(
+    RAPTOR_SURFACE_SOURCE
+    "${PROJECT_SOURCE_DIR}/surface/adapter.cc"
+    "${PROJECT_SOURCE_DIR}/surface/c.cc"
+    "${PROJECT_SOURCE_DIR}/surface/client.cc"
+    "${PROJECT_SOURCE_DIR}/surface/server.cc"
+)
+
 target_sources(raptor-static
     PRIVATE
     ${RAPTOR_ENGINE_SOURCE}
     ${RAPTOR_CORE_SOURCE}
     ${RAPTOR_UTIL_SOURCE}
+    ${RAPTOR_SURFACE_SOURCE}
 )
 
 target_sources(raptor-shared
@@ -117,6 +126,7 @@ target_sources(raptor-shared
     ${RAPTOR_ENGINE_SOURCE}
     ${RAPTOR_CORE_SOURCE}
     ${RAPTOR_UTIL_SOURCE}
+    ${RAPTOR_SURFACE_SOURCE}
 )
 
 target_compile_definitions(raptor-shared

@@ -16,25 +16,35 @@
  *
  */
 
-#ifndef __RAPTOR_PROTOCOL__
-#define __RAPTOR_PROTOCOL__
 
-#include <stddef.h>
-#include "raptor/slice.h"
+#ifndef __RAPTOR_EXPORT_H__
+#define __RAPTOR_EXPORT_H__
 
-namespace raptor {
-class IProtocol {
-public:
-    virtual ~IProtocol() {}
+#ifndef RAPTOR_API
 
-    // Get the max header size of current protocol
-    virtual size_t GetMaxHeaderSize() = 0;
+#ifdef RAPTOR_SHARED_LIBRARY
+#ifdef _WIN32
 
-    // Before sending data, you need to build a header
-    virtual Slice BuildPackageHeader(size_t pack_len) = 0;
+#ifdef RAPTOR_COMPILE_LIBRARY
+#define RAPTOR_API __declspec(dllexport)
+#else
+#define RAPTOR_API __declspec(dllimport)
+#endif
 
-    // return -1: error;  0: need more data; > 0 : pack_len
-    virtual int CheckPackageLength(const Slice* obj) = 0;
-};
-} // namespace raptor
-#endif  // __RAPTOR_PROTOCOL__
+#else  // _WIN32
+
+#ifdef RAPTOR_COMPILE_LIBRARY
+#define RAPTOR_API __attribute__((visibility("default")))
+#else
+#define RAPTOR_API
+#endif
+
+#endif  // _WIN32
+
+#else  // else(RAPTOR_SHARED_LIBRARY)
+#define RAPTOR_API
+#endif // RAPTOR_SHARED_LIBRARY
+
+#endif  // RAPTOR_API
+
+#endif  // __RAPTOR_EXPORT_H__

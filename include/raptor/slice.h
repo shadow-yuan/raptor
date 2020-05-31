@@ -16,16 +16,18 @@
  *
  */
 
-#ifndef __RAPTOR_CORE_SLICE__
-#define __RAPTOR_CORE_SLICE__
+#ifndef __RAPTOR_EXPORT_SLICE__
+#define __RAPTOR_EXPORT_SLICE__
 
 #include <stddef.h>
 #include <stdint.h>
 
+#include "raptor/export.h"
+
 namespace raptor {
 class SliceRefCount;
 
-class Slice final {
+class RAPTOR_API Slice final {
 public:
     friend class SliceBuffer;
     Slice();
@@ -68,24 +70,24 @@ private:
         } inlined;
     } _data;
 
-    friend Slice MakeSliceByDefaultSize();
-    friend Slice MakeSliceByLength(size_t len);
-    friend Slice operator+ (Slice s1, Slice s2);
-    friend Slice operator- (Slice s1, size_t len);
+    friend RAPTOR_API Slice MakeSliceByDefaultSize();
+    friend RAPTOR_API Slice MakeSliceByLength(size_t len);
+    friend RAPTOR_API Slice operator+ (Slice s1, Slice s2);
+    friend RAPTOR_API Slice operator- (Slice s1, size_t len);
 };
 
 // The default length is less than 4096
-Slice MakeSliceByDefaultSize();
+RAPTOR_API Slice MakeSliceByDefaultSize();
 
-Slice MakeSliceByLength(size_t len);
+RAPTOR_API Slice MakeSliceByLength(size_t len);
 
 // Combine the data of s1 and s2,
 // s1 is in the front, s2 is in the back
-Slice operator+ (Slice s1, Slice s2);
+RAPTOR_API Slice operator+ (Slice s1, Slice s2);
 
 // Remove len bytes from the begin address
-Slice operator- (Slice s1, size_t len);
+RAPTOR_API Slice operator- (Slice s1, size_t len);
 
 } // namespace raptor
 
-#endif  // __RAPTOR_CORE_SLICE__
+#endif  // __RAPTOR_EXPORT_SLICE__

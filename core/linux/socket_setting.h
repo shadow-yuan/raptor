@@ -23,9 +23,6 @@
 #include "core/sockaddr.h"
 #include "util/status.h"
 
-void raptor_global_socket_init();
-void raptor_global_socket_shutdown();
-
 /* set a socket to non blocking mode */
 raptor_error raptor_set_socket_nonblocking(int fd, int non_blocking);
 

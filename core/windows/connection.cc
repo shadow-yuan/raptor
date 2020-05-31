@@ -60,7 +60,7 @@ void Connection::Init(ConnectionId cid, SOCKET sock, const raptor_resolved_addre
     _service->OnConnectionArrived(cid, &_addr);
 }
 
-void Connection::SetProtocol(Protocol* p) {
+void Connection::SetProtocol(IProtocol* p) {
     _proto = p;
 }
 

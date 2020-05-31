@@ -16,29 +16,32 @@
  *
  */
 
-#pragma once
-#include <string>
+#ifndef __RAPTOR_CORE_LINUX_TCP_CLIENT__
+#define __RAPTOR_CORE_LINUX_TCP_CLIENT__
+
 #include "core/resolve_address.h"
 #include "core/sockaddr.h"
-#include "util/status.h"
-#include "util/thread.h"
 #include "core/slice/slice_buffer.h"
 #include "raptor/service.h"
 #include "raptor/protocol.h"
 #include "raptor/slice.h"
+#include "util/status.h"
 #include "util/sync.h"
+#include "util/thread.h"
 
 namespace raptor{
 class TcpClient final {
 public:
-    TcpClient(ITcpClientService* service, Protocol* proto);
+    explicit TcpClient(IClientReceiver* service);
     ~TcpClient();
 
     raptor_error Init();
-    raptor_error Connect(const std::string& addr, size_t timeout_ms);
+    raptor_error Connect(const char* addr, size_t timeout_ms);
     bool Send(const void* buff, size_t len);
     void Shutdown();
     bool IsOnline() const;
+    void SetProtocol(IProtocol* proto);
+
 private:
     void WorkThread(void* ptr);
 
@@ -49,8 +52,8 @@ private:
         const raptor_resolved_address* addr, int timeout_ms, int* new_fd);
 
 private:
-    ITcpClientService *_service;
-    Protocol* _proto;
+    IClientReceiver *_service;
+    IProtocol* _proto;
 
     bool _shutdown;
     bool _is_connected;
@@ -67,3 +70,4 @@ private:
 
 };
 } // namespace raptor
+#endif  // __RAPTOR_CORE_LINUX_TCP_CLIENT__

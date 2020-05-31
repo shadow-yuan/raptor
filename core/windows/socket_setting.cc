@@ -32,17 +32,6 @@
 #include "util/string.h"
 
 
-void raptor_global_socket_init() {
-    WSADATA wsaData;
-    int status = WSAStartup(MAKEWORD(2, 0), &wsaData);
-    RAPTOR_ASSERT(status == 0);
-}
-
-void raptor_global_socket_shutdown() {
-    int status = WSACleanup();
-    RAPTOR_ASSERT(status == 0);
-}
-
 /* set a socket to non blocking mode */
 raptor_error raptor_set_socket_nonblocking(SOCKET fd, int non_blocking) {
     uint32_t param = non_blocking ? 1 : 0;

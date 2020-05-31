@@ -17,13 +17,13 @@
  */
 #include "core/windows/tcp_client.h"
 #include "core/socket_util.h"
-#include "util/log.h"
 #include "core/windows/socket_setting.h"
+#include "util/log.h"
 
 namespace raptor {
-TcpClient::TcpClient(ITcpClientService* service, Protocol* proto)
+TcpClient::TcpClient(IClientReceiver* service)
     : _service(service)
-    , _proto(proto)
+    , _proto(nullptr)
     , _send_pending(false)
     , _shutdown(true)
     , _connectex(nullptr)
@@ -57,18 +57,17 @@ raptor_error TcpClient::Init() {
     return RAPTOR_ERROR_NONE;
 }
 
-raptor_error TcpClient::Connect(const std::string& addr, size_t timeout_ms) {
+raptor_error TcpClient::Connect(const char* addr, size_t timeout_ms) {
+    (void)timeout_ms; // ignore
+
     if (_shutdown) {
         return RAPTOR_ERROR_FROM_STATIC_STRING("TcpClient is not initialized");
-    }
-    if (addr.empty()) {
-        return RAPTOR_ERROR_FROM_STATIC_STRING("Invalid parameter");
     }
     if (_send_pending) {
         return RAPTOR_ERROR_FROM_STATIC_STRING("Connection operation in progress");
     }
     raptor_resolved_addresses* addrs;
-    auto e = raptor_blocking_resolve_address(addr.c_str(), nullptr, &addrs);
+    auto e = raptor_blocking_resolve_address(addr, nullptr, &addrs);
     if (e != RAPTOR_ERROR_NONE) {
         return e;
     }
@@ -87,7 +86,7 @@ raptor_error TcpClient::GetConnectExIfNecessary(SOCKET s) {
         /* Grab the function pointer for ConnectEx for that specific socket.
             It may change depending on the interface. */
         status =
-            WSAIoctl(_fd, SIO_GET_EXTENSION_FUNCTION_POINTER, &guid, sizeof(guid),
+            WSAIoctl(s, SIO_GET_EXTENSION_FUNCTION_POINTER, &guid, sizeof(guid),
                     &_connectex, sizeof(_connectex), &ioctl_num_bytes, NULL, NULL);
 
         if (status != 0) {
@@ -172,6 +171,10 @@ bool TcpClient::IsOnline() const {
     return (_fd != INVALID_SOCKET);
 }
 
+void TcpClient::SetProtocol(IProtocol* proto) {
+    _proto = proto;
+}
+
 void TcpClient::Shutdown() {
     if (!_shutdown) {
         _shutdown = true;
@@ -195,7 +198,7 @@ void TcpClient::Shutdown() {
     }
 }
 
-void TcpClient::WorkThread(void* ptr) {
+void TcpClient::WorkThread(void*) {
     while (!_shutdown) {
         DWORD ret = WSAWaitForMultipleEvents(1, &_event, FALSE, 1000, FALSE);
         if (ret == WSA_WAIT_FAILED || ret == WSA_WAIT_TIMEOUT) {
@@ -248,7 +251,7 @@ void TcpClient::OnConnectEvent(int err) {
     }
 }
 
-void TcpClient::OnCloseEvent(int err) {
+void TcpClient::OnCloseEvent(int) {
     // cleanup
     Shutdown();
 

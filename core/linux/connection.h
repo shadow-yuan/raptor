@@ -26,7 +26,7 @@
 
 namespace raptor {
 
-class Protocol;
+class IProtocol;
 class SendRecvThread;
 
 class Connection {
@@ -41,7 +41,7 @@ public:
             const raptor_resolved_address* addr,
             SendRecvThread* rcv, SendRecvThread* snd);
 
-    void SetProtocol(Protocol* p);
+    void SetProtocol(IProtocol* p);
     bool Send(const void* ptr, size_t len);
     void Shutdown(bool notify = false);
     bool IsOnline();
@@ -62,7 +62,7 @@ private:
     void ReleaseBuffer();
 
     internal::INotificationTransfer* _service;
-    Protocol* _proto;
+    IProtocol* _proto;
     int _fd;
     ConnectionId _cid;
 

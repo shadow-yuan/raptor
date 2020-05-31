@@ -64,13 +64,6 @@ public:
     virtual void OnCheckingEvent(time_t current) = 0;
 };
 
-// async connect
-class IConnectResult {
-public:
-    virtual ~IConnectResult() {}
-    virtual void OnConnectResult(void* ptr, bool success) = 0;
-};
-
 class INotificationTransfer {
 public:
     virtual ~INotificationTransfer() {}
