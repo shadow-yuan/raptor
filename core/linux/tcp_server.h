@@ -45,8 +45,8 @@ public:
     explicit TcpServer(IServerReceiver *service);
     ~TcpServer();
 
-    RefCountedPtr<Status> Init(const RaptorOptions* options);
-    RefCountedPtr<Status> AddListeningPort(const char* addr);
+    raptor_error Init(const RaptorOptions* options);
+    raptor_error AddListening(const char* addr);
 
     raptor_error Start();
     void Shutdown();

@@ -50,7 +50,7 @@ TcpServer::~TcpServer() {
     }
 }
 
-RefCountedPtr<Status> TcpServer::Init(const RaptorOptions* options) {
+raptor_error TcpServer::Init(const RaptorOptions* options) {
     if (!_shutdown) return RAPTOR_ERROR_FROM_STATIC_STRING("tcp server already running");
 
     _listener = std::make_shared<TcpListener>(this);
@@ -94,7 +94,7 @@ RefCountedPtr<Status> TcpServer::Init(const RaptorOptions* options) {
     return RAPTOR_ERROR_NONE;
 }
 
-RefCountedPtr<Status> TcpServer::AddListeningPort(const char* addr) {
+raptor_error TcpServer::AddListening(const char* addr) {
     if (_shutdown) return RAPTOR_ERROR_FROM_STATIC_STRING("tcp server uninitialized");
     if (!addr) return RAPTOR_ERROR_FROM_STATIC_STRING("invalid parameters");
     raptor_resolved_addresses* addrs;
