@@ -22,6 +22,10 @@
 #include <string.h>
 #include "util/alloc.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 char* raptor_strdup(const char* src) {
     char* dst;
     size_t len;
@@ -39,15 +43,12 @@ char* raptor_strdup(const char* src) {
 
 int raptor_asprintf(char** strp, const char* format, ...) {
     va_list args;
-    int ret;
-    char buf[64];
-    size_t strp_buflen;
-
     va_start(args, format);
 #ifdef _WIN32
-    ret = _vscprintf(format, args);
+    int ret = _vscprintf(format, args);
 #else
-    ret = vsnprintf(buf, sizeof(buf), format, args);
+    char buf[128] = { 0 };
+    int ret = vsnprintf(buf, sizeof(buf), format, args);
 #endif
     va_end(args);
     if (ret < 0) {
@@ -55,14 +56,9 @@ int raptor_asprintf(char** strp, const char* format, ...) {
         return -1;
     }
 
-    strp_buflen = static_cast<size_t>(ret) + 1;
+    size_t strp_buflen = static_cast<size_t>(ret) + 1;
     if ((*strp = static_cast<char*>(raptor::Malloc(strp_buflen))) == nullptr) {
         return -1;
-    }
-
-    if (strp_buflen <= sizeof(buf)) {
-        memcpy(*strp, buf, strp_buflen);
-        return ret;
     }
 
     // try again using the larger buffer.
@@ -70,6 +66,10 @@ int raptor_asprintf(char** strp, const char* format, ...) {
 #ifdef _WIN32
     ret = vsnprintf_s(*strp, strp_buflen, _TRUNCATE, format, args);
 #else
+    if (strp_buflen <= sizeof(buf)) {
+        memcpy(*strp, buf, strp_buflen);
+        return ret;
+    }
     ret = vsnprintf(*strp, strp_buflen, format, args);
 #endif
     va_end(args);
@@ -84,8 +84,6 @@ int raptor_asprintf(char** strp, const char* format, ...) {
 }
 
 #ifdef _WIN32
-
-#include <windows.h>
 
 char* raptor_format_message(int messageid) {
     char* error_text = NULL;
