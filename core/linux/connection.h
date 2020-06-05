@@ -61,6 +61,13 @@ private:
     bool DoSendEvent();
     void ReleaseBuffer();
 
+    // if success return the number of parsed packets
+    // otherwise return -1 (protocol error)
+    int  ParsingProtocol();
+
+    // return true if reach recv buffer tail.
+    bool ReadSliceFromRecvBuffer(size_t read_size, Slice& s);
+
     internal::INotificationTransfer* _service;
     IProtocol* _proto;
     int _fd;

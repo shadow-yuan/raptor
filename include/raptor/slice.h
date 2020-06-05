@@ -53,6 +53,7 @@ public:
     inline uint8_t* Buffer() {
         return const_cast<uint8_t*>(begin());
     }
+    void CutTail(size_t cut_size);
 
 private:
 

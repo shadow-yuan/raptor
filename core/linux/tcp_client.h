@@ -51,6 +51,13 @@ private:
     raptor_error AsyncConnect(
         const raptor_resolved_address* addr, int timeout_ms, int* new_fd);
 
+    // if success return the number of parsed packets
+    // otherwise return -1 (protocol error)
+    int  ParsingProtocol();
+
+    // return true if reach recv buffer tail.
+    bool ReadSliceFromRecvBuffer(size_t read_size, Slice& s);
+
 private:
     IClientReceiver *_service;
     IProtocol* _proto;

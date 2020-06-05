@@ -21,6 +21,7 @@
 
 #include <stddef.h>
 #include "raptor/slice.h"
+#include "raptor/types.h"
 
 namespace raptor {
 class IProtocol {
@@ -34,7 +35,7 @@ public:
     virtual Slice BuildPackageHeader(size_t pack_len) = 0;
 
     // return -1: error;  0: need more data; > 0 : pack_len
-    virtual int CheckPackageLength(const Slice* obj) = 0;
+    virtual int CheckPackageLength(ConnectionId cid, Slice* obj) = 0;
 };
 } // namespace raptor
 #endif  // __RAPTOR_PROTOCOL__

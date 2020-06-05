@@ -215,8 +215,8 @@ raptor::Slice RaptorProtocolAdapter::BuildPackageHeader(size_t pack_len) {
 }
 
 // return -1: error;  0: need more data; > 0 : pack_len
-int RaptorProtocolAdapter::CheckPackageLength(const raptor::Slice* obj) {
-    return _check_package_length(obj->begin(), obj->size());
+int RaptorProtocolAdapter::CheckPackageLength(ConnectionId cid, raptor::Slice* obj) {
+    return _check_package_length(cid, obj->begin(), obj->size());
 }
 
 void RaptorProtocolAdapter::SetCallbacks(

@@ -17,7 +17,8 @@
  *
  */
 
-#pragma once
+#ifndef __RAPTOR_CORE_MPSCQ__
+#define __RAPTOR_CORE_MPSCQ__
 
 #include "util/atomic.h"
 
@@ -51,3 +52,4 @@ private:
 };
 
 } // namespace raptor
+#endif  // __RAPTOR_CORE_MPSCQ__

@@ -171,30 +171,10 @@ int TcpClient::DoRecv() {
 
         // Add to recv buffer
         _rcv_buffer.AddSlice(Slice(buffer, recv_bytes));
-
-        size_t cache_size = _rcv_buffer.GetBufferLength();
-        while (cache_size > 0) {
-
-            Slice obj = _rcv_buffer.GetHeader(_proto->GetMaxHeaderSize());
-            if (obj.Empty()) {
-                break;
-            }
-
-            int pack_len = _proto->CheckPackageLength(&obj);
-            if (pack_len <= 0) {
-                log_error("tcp client: internal protocol error(pack_len = %d)", pack_len);
-                return -1;
-            }
-
-            if (cache_size < (size_t)pack_len) {
-                break;
-            }
-
-            Slice package = _rcv_buffer.GetHeader(pack_len);
-            _service->OnMessageReceived(package.begin(), package.size());
-            _rcv_buffer.MoveHeader(pack_len);
-            cache_size = _rcv_buffer.GetBufferLength();
+        if (ParsingProtocol() == -1) {
+            return -1;
         }
+
     } while (recv_bytes == unused_space);
     return 0;
 }
@@ -246,6 +226,62 @@ raptor_error TcpClient::AsyncConnect(
     }
     *new_fd = sock_fd;
     return RAPTOR_ERROR_NONE;
+}
+
+bool TcpClient::ReadSliceFromRecvBuffer(size_t read_size, Slice& s) {
+    size_t cache_size = _rcv_buffer.GetBufferLength();
+    if (read_size >= cache_size) {
+        s = _rcv_buffer.Merge();
+        return true;
+    }
+    s = _rcv_buffer.GetHeader(read_size);
+    return false;
+}
+
+int TcpClient::ParsingProtocol() {
+    size_t cache_size = _rcv_buffer.GetBufferLength();
+    size_t header_size = _proto->GetMaxHeaderSize();
+    int package_counter = 0;
+
+    while (cache_size > 0) {
+        size_t read_size = header_size;
+        int pack_len = 0;
+        Slice package;
+        do {
+            bool reach_tail = ReadSliceFromRecvBuffer(read_size, package);
+            pack_len = _proto->CheckPackageLength(0, &package);
+            if (pack_len < 0) {
+                log_error("tcp client: internal protocol error(pack_len = %d)", pack_len);
+                return -1;
+            }
+
+            // equal 0 means we need more data
+            if (pack_len == 0) {
+                if (reach_tail) {
+                    goto done;
+                }
+                read_size *= 2;
+                continue;
+            }
+
+            // We got the length of a whole packet
+            if (cache_size >= (size_t)pack_len) {
+                break;
+            }
+            goto done;
+        } while (false);
+
+        if (package.size() < static_cast<size_t>(pack_len)) {
+            package = _rcv_buffer.GetHeader(pack_len);
+        }
+        _service->OnMessageReceived(package.begin(), pack_len);
+        _rcv_buffer.MoveHeader(pack_len);
+
+        cache_size = _rcv_buffer.GetBufferLength();
+        package_counter++;
+    }
+done:
+    return package_counter;
 }
 
 } // namespace raptor

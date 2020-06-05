@@ -16,7 +16,9 @@
  *
  */
 
-#pragma once
+#ifndef __RAPTOR_CORE_WINDOWS_CONNECTION__
+#define __RAPTOR_CORE_WINDOWS_CONNECTION__
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -54,7 +56,12 @@ private:
     bool OnSendEvent(size_t size);
     bool OnRecvEvent(size_t size);
 
-    bool ParsingProtocol();
+    // if success return the number of parsed packets
+    // otherwise return -1 (protocol error)
+    int  ParsingProtocol();
+
+    // return true if reach recv buffer tail.
+    bool ReadSliceFromRecvBuffer(size_t read_size, Slice& s);
 
     bool AsyncSend();
     bool AsyncRecv();
@@ -75,8 +82,8 @@ private:
 
     raptor_resolved_address _addr;
 
-    SliceBuffer _recv_buffer;
-    SliceBuffer _send_buffer;
+    SliceBuffer _rcv_buffer;
+    SliceBuffer _snd_buffer;
 
     Slice _tmp_buffer[DEFAULT_TEMP_SLICE_COUNT];
 
@@ -87,3 +94,4 @@ private:
     void* _extend_ptr;
 };
 } // namespace raptor
+#endif  // __RAPTOR_CORE_WINDOWS_CONNECTION__

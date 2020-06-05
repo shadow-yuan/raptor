@@ -60,7 +60,13 @@ private:
 
     bool DoSend();
     bool DoRecv();
-    bool ParsingProtocol();
+
+    // if success return the number of parsed packets
+    // otherwise return -1 (protocol error)
+    int  ParsingProtocol();
+
+    // return true if reach recv buffer tail.
+    bool ReadSliceFromRecvBuffer(size_t read_size, Slice& s);
 
 private:
     enum { DEFAULT_TEMP_SLICE_COUNT = 2};

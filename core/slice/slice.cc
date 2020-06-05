@@ -166,6 +166,18 @@ const uint8_t* Slice::end() const {
     return begin() + size();
 }
 
+void Slice::CutTail(size_t cut_size) {
+    if (cut_size == 0) return;
+    if (cut_size > size()) {
+        cut_size = size();
+    }
+    if (_refs) {
+        _data.refcounted.length -= cut_size;
+    } else {
+        _data.inlined.length -= static_cast<uint8_t>(cut_size);
+    }
+}
+
 // -----------------------------
 
 Slice MakeSliceByDefaultSize() {

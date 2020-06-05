@@ -16,7 +16,9 @@
  *
  */
 
-#pragma once
+#ifndef __RAPTOR_CORE_LINUX_TCP_LISTENER__
+#define __RAPTOR_CORE_LINUX_TCP_LISTENER__
+
 #include "core/linux/epoll.h"
 #include "core/resolve_address.h"
 #include "core/service.h"
@@ -57,3 +59,4 @@ private:
 };
 
 } // namespace raptor
+#endif  // __RAPTOR_CORE_LINUX_TCP_LISTENER__

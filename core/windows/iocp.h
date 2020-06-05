@@ -16,7 +16,9 @@
  *
  */
 
-#pragma once
+#ifndef __RAPTOR_CORE_WINDOWS_IOCP__
+#define __RAPTOR_CORE_WINDOWS_IOCP__
+
 #include <winsock2.h>
 #include "util/status.h"
 
@@ -49,3 +51,4 @@ private:
     HANDLE _handle;
 };
 } // namespace raptor
+#endif  // __RAPTOR_CORE_WINDOWS_IOCP__

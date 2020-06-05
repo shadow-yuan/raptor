@@ -78,11 +78,11 @@ void Connection::Shutdown(bool notify) {
     }
 
     _rcv_mtx.Lock();
-    _recv_buffer.ClearBuffer();
+    _rcv_buffer.ClearBuffer();
     _rcv_mtx.Unlock();
 
     _snd_mtx.Lock();
-    _send_buffer.ClearBuffer();
+    _snd_buffer.ClearBuffer();
     _snd_mtx.Unlock();
 
     for (size_t i = 0; i < DEFAULT_TEMP_SLICE_COUNT; i++) {
@@ -95,8 +95,8 @@ void Connection::Shutdown(bool notify) {
 bool Connection::Send(const void* data, size_t len) {
     AutoMutex g(&_snd_mtx);
     Slice hdr = _proto->BuildPackageHeader(len);
-    _send_buffer.AddSlice(hdr);
-    _send_buffer.AddSlice(Slice(data, len));
+    _snd_buffer.AddSlice(hdr);
+    _snd_buffer.AddSlice(Slice(data, len));
     return AsyncSend();
 }
 
@@ -104,7 +104,7 @@ constexpr size_t MAX_PACKAGE_SIZE = 0xffff;
 constexpr size_t MAX_WSABUF_COUNT = 16;
 
 bool Connection::AsyncSend() {
-    if (_send_buffer.Empty() || _send_pending) {
+    if (_snd_buffer.Empty() || _send_pending) {
         return true;
     }
 
@@ -114,9 +114,9 @@ bool Connection::AsyncSend() {
 
     _send_pending = true;
 
-    size_t count = _send_buffer.Count();
+    size_t count = _snd_buffer.Count();
     for (size_t i = 0; i < count && i < MAX_WSABUF_COUNT; i++) {
-        Slice s = _send_buffer.GetSlice(i);
+        Slice s = _snd_buffer.GetSlice(i);
         if (prepare_send_length + s.Length() > MAX_PACKAGE_SIZE) {
             break;
         }
@@ -169,8 +169,8 @@ bool Connection::OnSendEvent(size_t size) {
     RAPTOR_ASSERT(size != 0);
     AutoMutex g(&_snd_mtx);
     _send_pending = false;
-    _send_buffer.MoveHeader(size);
-    if (_send_buffer.Empty()) {
+    _snd_buffer.MoveHeader(size);
+    if (_snd_buffer.Empty()) {
         return true;
     }
     return AsyncSend();
@@ -184,45 +184,79 @@ bool Connection::OnRecvEvent(size_t size) {
     size_t i = 0;
 
     for (; i < DEFAULT_TEMP_SLICE_COUNT && i < count; i++) {
-        _recv_buffer.AddSlice(_tmp_buffer[i]);
+        _rcv_buffer.AddSlice(_tmp_buffer[i]);
         _tmp_buffer[i] = MakeSliceByDefaultSize();
         size -= node_size;
     }
 
     if (size > 0) {
         Slice s(_tmp_buffer[i].Buffer(), size);
-        _recv_buffer.AddSlice(s);
+        _rcv_buffer.AddSlice(s);
     }
 
-    if (!ParsingProtocol()) {
+    if (ParsingProtocol() == -1) {
         return false;
     }
     return AsyncRecv();
 }
 
-bool Connection::ParsingProtocol() {
-    size_t cache_size = _recv_buffer.GetBufferLength();
-    while (cache_size > 0) {
-        Slice obj = _recv_buffer.GetHeader(_proto->GetMaxHeaderSize());
-        if (obj.Empty()) {
-            break;
-        }
-        int pack_len = _proto->CheckPackageLength(&obj);
-        if (pack_len <= 0) {
-            log_error("connection: internal protocol error(pack_len = %d)", pack_len);
-            return false;
-        }
-
-        if (cache_size < (size_t)pack_len) {
-            break;
-        }
-
-        Slice package = _recv_buffer.GetHeader(pack_len);
-        _service->OnDataReceived(_cid, &package);
-        _recv_buffer.MoveHeader(pack_len);
-        cache_size = _recv_buffer.GetBufferLength();
+bool Connection::ReadSliceFromRecvBuffer(size_t read_size, Slice& s) {
+    size_t cache_size = _rcv_buffer.GetBufferLength();
+    if (read_size >= cache_size) {
+        s = _rcv_buffer.Merge();
+        return true;
     }
-    return true;
+    s = _rcv_buffer.GetHeader(read_size);
+    return false;
+}
+
+int Connection::ParsingProtocol() {
+    size_t cache_size = _rcv_buffer.GetBufferLength();
+    size_t header_size = _proto->GetMaxHeaderSize();
+    int package_counter = 0;
+
+    while (cache_size > 0) {
+        size_t read_size = header_size;
+        int pack_len = 0;
+        Slice package;
+        do {
+            bool reach_tail = ReadSliceFromRecvBuffer(read_size, package);
+            pack_len = _proto->CheckPackageLength(0, &package);
+            if (pack_len < 0) {
+                log_error("tcp client: internal protocol error(pack_len = %d)", pack_len);
+                return -1;
+            }
+
+            // equal 0 means we need more data
+            if (pack_len == 0) {
+                if (reach_tail) {
+                    goto done;
+                }
+                read_size *= 2;
+                continue;
+            }
+
+            // We got the length of a whole packet
+            if (cache_size >= (size_t)pack_len) {
+                break;
+            }
+            goto done;
+        } while (false);
+
+        if (package.size() < static_cast<size_t>(pack_len)) {
+            package = _rcv_buffer.GetHeader(pack_len);
+        } else {
+            size_t n = package.size() - pack_len;
+            package.CutTail(n);
+        }
+        _service->OnDataReceived(_cid, &package);
+        _rcv_buffer.MoveHeader(pack_len);
+
+        cache_size = _rcv_buffer.GetBufferLength();
+        package_counter++;
+    }
+done:
+    return package_counter;
 }
 
 void Connection::SetUserData(void* ptr) {
