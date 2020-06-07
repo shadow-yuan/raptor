@@ -50,7 +50,6 @@ typedef void (*raptor_client_callback_message_received)(const void* buffer, size
 
 // protocol callback
 typedef size_t (* raptor_protocol_callback_get_max_header_size)();
-typedef size_t (* raptor_protocol_callback_build_package_header)(char* header, size_t data_len);
 typedef int    (* raptor_protocol_callback_check_package_length)(raptor_connection_t cid, const void* buff, size_t len);
 
 #ifdef __cplusplus

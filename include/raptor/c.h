@@ -72,6 +72,13 @@ RAPTOR_API int raptor_server_set_callbacks(
 RAPTOR_API int raptor_server_send(
                                 raptor_server_t* s,
                                 raptor_connection_t c, const void* data, size_t len);
+
+RAPTOR_API int raptor_server_send_with_header(
+                                raptor_server_t* s,
+                                raptor_connection_t c,
+                                const void* header, size_t header_size,
+                                const void* data, size_t len);
+
 RAPTOR_API int raptor_server_set_userdata(
                                 raptor_server_t* s, raptor_connection_t c, void* userdata);
 RAPTOR_API int raptor_server_get_userdata(
@@ -114,7 +121,6 @@ RAPTOR_API raptor_protocol_t* raptor_protocol_create();
 RAPTOR_API void raptor_protocol_set_callbacks(
                                 raptor_protocol_t* p,
                                 raptor_protocol_callback_get_max_header_size cb1,
-                                raptor_protocol_callback_build_package_header cb2,
                                 raptor_protocol_callback_check_package_length cb3
                                 );
 

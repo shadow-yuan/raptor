@@ -146,6 +146,17 @@ int raptor_server_send(
     return 0;
 }
 
+int raptor_server_send_with_header(
+                                raptor_server_t* s,
+                                raptor_connection_t c,
+                                const void* header, size_t header_size,
+                                const void* data, size_t data_size) {
+    if (s) {
+        return s->server->SendWithHeader(c, header, header_size, data, data_size);
+    }
+    return 0;
+}
+
 int raptor_server_set_userdata(
     raptor_server_t* s, raptor_connection_t c, void* userdata) {
     if (s) {
@@ -263,10 +274,9 @@ raptor_protocol_t* raptor_protocol_create() {
 void raptor_protocol_set_callbacks(
                                 raptor_protocol_t* p,
                                 raptor_protocol_callback_get_max_header_size cb1,
-                                raptor_protocol_callback_build_package_header cb2,
                                 raptor_protocol_callback_check_package_length cb3
                                 ) {
-    p->proto->SetCallbacks(cb1, cb2, cb3);
+    p->proto->SetCallbacks(cb1, cb3);
 }
 
 void raptor_protocol_destroy(raptor_protocol_t* p) {

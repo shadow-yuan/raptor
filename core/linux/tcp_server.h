@@ -53,6 +53,8 @@ public:
     void SetProtocol(IProtocol* proto);
 
     bool Send(ConnectionId cid, const void* buf, size_t len);
+    bool SendWithHeader(ConnectionId cid,
+        const void* hdr, size_t hdr_len, const void* data, size_t data_len);
     bool CloseConnection(ConnectionId cid);
 
     // internal::IAcceptor impl

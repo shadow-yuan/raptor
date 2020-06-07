@@ -94,9 +94,15 @@ void Connection::Shutdown(bool notify) {
 
 bool Connection::Send(const void* data, size_t len) {
     AutoMutex g(&_snd_mtx);
-    Slice hdr = _proto->BuildPackageHeader(len);
-    _snd_buffer.AddSlice(hdr);
     _snd_buffer.AddSlice(Slice(data, len));
+    return AsyncSend();
+}
+
+bool Connection::SendWithHeader(
+        const void* hdr, size_t hdr_len, const void* data, size_t data_len) {
+    AutoMutex g(&_snd_mtx);
+    _snd_buffer.AddSlice(Slice(hdr, hdr_len));
+    _snd_buffer.AddSlice(Slice(data, data_len));
     return AsyncSend();
 }
 

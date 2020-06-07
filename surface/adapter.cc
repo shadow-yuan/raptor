@@ -72,7 +72,16 @@ void RaptorServerAdapter::Shutdown() {
 }
 
 bool RaptorServerAdapter::Send(ConnectionId cid, const void* buff, size_t len) {
+    if (!buff || len == 0) return false;
     return _impl->Send(cid, buff, len);
+}
+
+bool RaptorServerAdapter::SendWithHeader(
+    ConnectionId cid, const void* hdr, size_t hdr_len, const void* data, size_t data_len) {
+    if (!hdr || hdr_len == 0) {
+        return Send(cid, data, data_len);
+    }
+    return _impl->SendWithHeader(cid, hdr, hdr_len, data, data_len);
 }
 
 bool RaptorServerAdapter::CloseConnection(ConnectionId cid) {
@@ -198,20 +207,12 @@ void RaptorClientAdapter::SetCallbacks(
 
 RaptorProtocolAdapter::RaptorProtocolAdapter() {
     _get_max_header_size = nullptr;
-    _build_package_header = nullptr;
     _check_package_length = nullptr;
 }
 
 // Get the max header size of current protocol
 size_t RaptorProtocolAdapter::GetMaxHeaderSize() {
     return _get_max_header_size();
-}
-
-// Before sending data, you need to build a header
-raptor::Slice RaptorProtocolAdapter::BuildPackageHeader(size_t pack_len) {
-    char buffer[256] = {0};
-    size_t len = _build_package_header(buffer, pack_len);
-    return raptor::Slice(buffer, len);
 }
 
 // return -1: error;  0: need more data; > 0 : pack_len
@@ -221,9 +222,7 @@ int RaptorProtocolAdapter::CheckPackageLength(ConnectionId cid, raptor::Slice* o
 
 void RaptorProtocolAdapter::SetCallbacks(
         raptor_protocol_callback_get_max_header_size cb1,
-        raptor_protocol_callback_build_package_header cb2,
         raptor_protocol_callback_check_package_length cb3) {
     _get_max_header_size = cb1;
-    _build_package_header = cb2;
     _check_package_length = cb3;
 }

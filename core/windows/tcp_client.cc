@@ -158,8 +158,6 @@ bool TcpClient::Send(const void* buff, size_t len) {
     }
 
     AutoMutex g(&_s_mtx);
-    Slice hdr = _proto->BuildPackageHeader(len);
-    _snd_buffer.AddSlice(hdr);
     _snd_buffer.AddSlice(Slice(buff, len));
     if (!_send_pending) {
         return AsyncSend();

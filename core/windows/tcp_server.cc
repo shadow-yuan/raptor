@@ -171,6 +171,19 @@ bool TcpServer::Send(ConnectionId cid, const void* buf, size_t len) {
     return false;
 }
 
+bool TcpServer::SendWithHeader(ConnectionId cid,
+        const void* hdr, size_t hdr_len, const void* data, size_t data_len) {
+    uint32_t index = CheckConnectionId(cid);
+    if (index == InvalidIndex) {
+        return false;
+    }
+
+    if (_mgr[index].first) {
+        return _mgr[index].first->SendWithHeader(hdr, hdr_len, data, data_len);
+    }
+    return false;
+}
+
 bool TcpServer::CloseConnection(ConnectionId cid){
     uint32_t index = CheckConnectionId(cid);
     if (index == InvalidIndex) {

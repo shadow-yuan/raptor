@@ -80,7 +80,17 @@ void Server::Shutdown() {
 }
 
 bool Server::Send(ConnectionId cid, const void* buff, size_t len) {
+    if (!buff || len == 0) return false;
     return _impl->Send(cid, buff, len);
+}
+
+bool Server::SendWithHeader(ConnectionId cid,
+        const void* hdr, size_t hdr_len, const void* data, size_t data_len) {
+
+    if (!hdr || hdr_len == 0) {
+        return Send(cid, data, data_len);
+    }
+    return _impl->SendWithHeader(cid, hdr, hdr_len, data, data_len);
 }
 
 bool Server::CloseConnection(ConnectionId cid) {

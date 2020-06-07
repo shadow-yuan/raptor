@@ -41,6 +41,7 @@ public:
     virtual bool Start() = 0;
     virtual void Shutdown() = 0;
     virtual bool Send(ConnectionId cid, const void* buff, size_t len) = 0;
+    virtual bool SendWithHeader(ConnectionId cid, const void* hdr, size_t hdr_len, const void* data, size_t data_len) = 0;
     virtual bool CloseConnection(ConnectionId cid) = 0;
 };
 

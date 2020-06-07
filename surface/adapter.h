@@ -43,6 +43,7 @@ public:
     bool Start() override;
     void Shutdown() override;
     bool Send(ConnectionId cid, const void* buff, size_t len) override;
+    bool SendWithHeader(ConnectionId cid, const void* hdr, size_t hdr_len, const void* data, size_t data_len) override;
     bool CloseConnection(ConnectionId cid) override;
 
     // IServerReceiver impl
@@ -108,21 +109,16 @@ public:
     // Get the max header size of current protocol
     size_t GetMaxHeaderSize() override;
 
-    // Before sending data, you need to build a header
-    raptor::Slice BuildPackageHeader(size_t pack_len) override;
-
     // return -1: error;  0: need more data; > 0 : pack_len
     int CheckPackageLength(ConnectionId cid, raptor::Slice* obj) override;
 
     void SetCallbacks(
         raptor_protocol_callback_get_max_header_size get_max_header_size,
-        raptor_protocol_callback_build_package_header cbuild_package_headerb2,
         raptor_protocol_callback_check_package_length check_package_length
     );
 
 private:
     raptor_protocol_callback_get_max_header_size _get_max_header_size;
-    raptor_protocol_callback_build_package_header _build_package_header;
     raptor_protocol_callback_check_package_length _check_package_length;
 };
 

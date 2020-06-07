@@ -31,9 +31,6 @@ public:
     // Get the max header size of current protocol
     virtual size_t GetMaxHeaderSize() = 0;
 
-    // Before sending data, you need to build a header
-    virtual Slice BuildPackageHeader(size_t pack_len) = 0;
-
     // return -1: error;  0: need more data; > 0 : pack_len
     virtual int CheckPackageLength(ConnectionId cid, Slice* obj) = 0;
 };
