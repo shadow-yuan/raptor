@@ -43,7 +43,7 @@ public:
 
     void SetProtocol(IProtocol* p);
     bool Send(const void* ptr, size_t len);
-    bool SendWithHeader(ConnectionId cid,
+    bool SendWithHeader(
         const void* hdr, size_t hdr_len, const void* data, size_t data_len);
     void Shutdown(bool notify = false);
     bool IsOnline();

@@ -60,6 +60,10 @@ void Connection::Init(
     _service->OnConnectionArrived(_cid, &_addr);
 }
 
+void Connection::SetProtocol(IProtocol* p) {
+    _proto = p;
+}
+
 bool Connection::Send(const void* ptr, size_t len) {
     if (!IsOnline()) return false;
     AutoMutex g(&_snd_mutex);
