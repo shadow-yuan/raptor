@@ -22,14 +22,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "raptor/export.h"
-
 namespace raptor {
 class SliceRefCount;
 
-class RAPTOR_API Slice final {
+class Slice final {
 public:
-    friend class SliceBuffer;
     Slice();
     Slice(const char* ptr);
     Slice(const void* buf, size_t len);
@@ -71,23 +68,24 @@ private:
         } inlined;
     } _data;
 
-    friend RAPTOR_API Slice MakeSliceByDefaultSize();
-    friend RAPTOR_API Slice MakeSliceByLength(size_t len);
-    friend RAPTOR_API Slice operator+ (Slice s1, Slice s2);
-    friend RAPTOR_API Slice operator- (Slice s1, size_t len);
+    friend class SliceBuffer;
+    friend Slice MakeSliceByDefaultSize();
+    friend Slice MakeSliceByLength(size_t len);
+    friend Slice operator+ (Slice s1, Slice s2);
+    friend Slice operator- (Slice s1, size_t len);
 };
 
 // The default length is less than 4096
-RAPTOR_API Slice MakeSliceByDefaultSize();
+Slice MakeSliceByDefaultSize();
 
-RAPTOR_API Slice MakeSliceByLength(size_t len);
+Slice MakeSliceByLength(size_t len);
 
 // Combine the data of s1 and s2,
 // s1 is in the front, s2 is in the back
-RAPTOR_API Slice operator+ (Slice s1, Slice s2);
+Slice operator+ (Slice s1, Slice s2);
 
 // Remove len bytes from the begin address
-RAPTOR_API Slice operator- (Slice s1, size_t len);
+Slice operator- (Slice s1, size_t len);
 
 } // namespace raptor
 

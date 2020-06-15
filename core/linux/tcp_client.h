@@ -21,10 +21,10 @@
 
 #include "core/resolve_address.h"
 #include "core/sockaddr.h"
+#include "core/slice/slice.h"
 #include "core/slice/slice_buffer.h"
 #include "raptor/service.h"
 #include "raptor/protocol.h"
-#include "raptor/slice.h"
 #include "util/status.h"
 #include "util/sync.h"
 #include "util/thread.h"

@@ -227,7 +227,7 @@ int Connection::ParsingProtocol() {
         Slice package;
         do {
             bool reach_tail = ReadSliceFromRecvBuffer(read_size, package);
-            pack_len = _proto->CheckPackageLength(0, &package);
+            pack_len = _proto->CheckPackageLength(0, package.begin(), package.size());
             if (pack_len < 0) {
                 log_error("tcp client: internal protocol error(pack_len = %d)", pack_len);
                 return -1;

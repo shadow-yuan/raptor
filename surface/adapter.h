@@ -23,7 +23,6 @@
 
 #include "raptor/protocol.h"
 #include "raptor/service.h"
-#include "raptor/slice.h"
 
 namespace raptor {
 class TcpServer;
@@ -109,7 +108,7 @@ public:
     size_t GetMaxHeaderSize() override;
 
     // return -1: error;  0: need more data; > 0 : pack_len
-    int CheckPackageLength(ConnectionId cid, raptor::Slice* obj) override;
+    int CheckPackageLength(ConnectionId cid, const void* data, size_t len) override;
 
     void SetCallbacks(
         raptor_protocol_callback_get_max_header_size get_max_header_size,

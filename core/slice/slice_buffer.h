@@ -22,7 +22,7 @@
 #include <stdint.h>
 #include <vector>
 
-#include "raptor/slice.h"
+#include "core/slice/slice.h"
 
 namespace raptor {
 

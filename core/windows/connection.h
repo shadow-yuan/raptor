@@ -25,9 +25,9 @@
 #include "core/cid.h"
 #include "core/resolve_address.h"
 #include "core/service.h"
+#include "core/slice/slice.h"
 #include "core/slice/slice_buffer.h"
 #include "core/windows/iocp.h"
-#include "raptor/slice.h"
 #include "util/sync.h"
 
 namespace raptor {

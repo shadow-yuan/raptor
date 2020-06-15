@@ -20,6 +20,7 @@
 #define __RAPTOR_CORE_WINDOWS_TCP_CLIENT__
 
 #include "core/resolve_address.h"
+#include "core/slice/slice.h"
 #include "core/slice/slice_buffer.h"
 #include "core/sockaddr.h"
 
@@ -29,7 +30,6 @@
 
 #include "raptor/service.h"
 #include "raptor/protocol.h"
-#include "raptor/slice.h"
 
 namespace raptor{
 class TcpClient final {

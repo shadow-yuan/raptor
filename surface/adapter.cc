@@ -216,8 +216,8 @@ size_t RaptorProtocolAdapter::GetMaxHeaderSize() {
 }
 
 // return -1: error;  0: need more data; > 0 : pack_len
-int RaptorProtocolAdapter::CheckPackageLength(ConnectionId cid, raptor::Slice* obj) {
-    return _check_package_length(cid, obj->begin(), obj->size());
+int RaptorProtocolAdapter::CheckPackageLength(ConnectionId cid, const void* data, size_t len) {
+    return _check_package_length(cid, data, len);
 }
 
 void RaptorProtocolAdapter::SetCallbacks(
