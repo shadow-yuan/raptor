@@ -43,6 +43,10 @@ public:
     virtual bool Send(ConnectionId cid, const void* buff, size_t len) = 0;
     virtual bool SendWithHeader(ConnectionId cid, const void* hdr, size_t hdr_len, const void* data, size_t data_len) = 0;
     virtual bool CloseConnection(ConnectionId cid) = 0;
+    virtual bool SetUserData(ConnectionId cid, void* data) = 0;
+    virtual bool GetUserData(ConnectionId cid, void** data) = 0;
+    virtual bool SetExtendInfo(ConnectionId cid, uint64_t info) = 0;
+    virtual bool GetExtendInfo(ConnectionId cid, uint64_t* info) = 0;
 };
 
 class IClientReceiver {

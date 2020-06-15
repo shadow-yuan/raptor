@@ -45,6 +45,10 @@ public:
     bool Send(ConnectionId cid, const void* buff, size_t len) override;
     bool SendWithHeader(ConnectionId cid, const void* hdr, size_t hdr_len, const void* data, size_t data_len) override;
     bool CloseConnection(ConnectionId cid) override;
+    bool SetUserData(ConnectionId id, void* userdata) override;
+    bool GetUserData(ConnectionId id, void** userdata) override;
+    bool SetExtendInfo(ConnectionId id, uint64_t info) override;
+    bool GetExtendInfo(ConnectionId id, uint64_t* info) override;
 
     // IServerReceiver impl
 	void OnConnected(ConnectionId id) override;
@@ -57,11 +61,6 @@ public:
                     raptor_server_callback_message_received on_message_received,
                     raptor_server_callback_connection_closed on_closed
                     );
-
-    bool SetUserData(ConnectionId id, void* userdatag);
-    bool GetUserData(ConnectionId id, void** userdata);
-    bool SetExtendInfo(ConnectionId id, uint64_t info);
-    bool GetExtendInfo(ConnectionId id, uint64_t* info);
 
 private:
     std::shared_ptr<raptor::TcpServer> _impl;

@@ -42,12 +42,10 @@ public:
     bool SendWithHeader(ConnectionId cid,
         const void* hdr, size_t hdr_len, const void* data, size_t data_len) override;
     bool CloseConnection(ConnectionId cid) override;
-
-    // user data
-    bool SetUserData(ConnectionId id, void* userdatag);
-    bool GetUserData(ConnectionId id, void** userdata);
-    bool SetExtendInfo(ConnectionId id, uint64_t info);
-    bool GetExtendInfo(ConnectionId id, uint64_t* info);
+    bool SetUserData(ConnectionId id, void* userdata) override;
+    bool GetUserData(ConnectionId id, void** userdata) override;
+    bool SetExtendInfo(ConnectionId id, uint64_t info) override;
+    bool GetExtendInfo(ConnectionId id, uint64_t* info) override;
 
 private:
     TcpServer* _impl;
