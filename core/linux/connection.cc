@@ -49,6 +49,9 @@ void Connection::Init(
                     const raptor_resolved_address* addr,
                     SendRecvThread* r, SendRecvThread* s) {
     _cid = cid;
+
+    _fd = fd;
+
     _rcv_thd = r;
     _snd_thd = s;
 
