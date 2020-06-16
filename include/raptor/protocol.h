@@ -20,7 +20,6 @@
 #define __RAPTOR_PROTOCOL__
 
 #include <stddef.h>
-#include "raptor/types.h"
 
 namespace raptor {
 class IProtocol {
@@ -31,7 +30,7 @@ public:
     virtual size_t GetMaxHeaderSize() = 0;
 
     // return -1: error;  0: need more data; > 0 : pack_len
-    virtual int CheckPackageLength(ConnectionId cid, const void* data, size_t len) = 0;
+    virtual int CheckPackageLength(const void* data, size_t len) = 0;
 };
 } // namespace raptor
 #endif  // __RAPTOR_PROTOCOL__
