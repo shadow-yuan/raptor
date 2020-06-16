@@ -64,19 +64,15 @@ void Connection::SetProtocol(IProtocol* p) {
     _proto = p;
 }
 
-bool Connection::Send(const void* ptr, size_t len) {
-    if (!IsOnline()) return false;
-    AutoMutex g(&_snd_mutex);
-    _snd_buffer.AddSlice(Slice(ptr, len));
-    _snd_thd->Modify(_fd, (void*)_cid, EPOLLOUT | EPOLLET);
-    return true;
-}
-
 bool Connection::SendWithHeader(const void* hdr, size_t hdr_len, const void* data, size_t data_len) {
     if (!IsOnline()) return false;
     AutoMutex g(&_snd_mutex);
-    _snd_buffer.AddSlice(Slice(hdr, hdr_len));
-    _snd_buffer.AddSlice(Slice(data, data_len));
+    if (hdr != nullptr && hdr_len > 0) {
+        _snd_buffer.AddSlice(Slice(hdr, hdr_len));
+    }
+    if (data != nullptr && data_len > 0) {
+        _snd_buffer.AddSlice(Slice(data, data_len));
+    }
     _snd_thd->Modify(_fd, (void*)_cid, EPOLLOUT | EPOLLET);
     return true;
 }
@@ -129,17 +125,15 @@ bool Connection::DoRecvEvent() {
         _rcv_thd->Modify(_fd, (void*)_cid, EPOLLIN | EPOLLET);
         return true;
     }
-    Shutdown(true);
     return false;
 }
 
 bool Connection::DoSendEvent() {
     int result = OnSend();
-    if (result != 0) {
-        Shutdown(true);
-        return false;
+    if (result == 0) {
+        return true;
     }
-    return true;
+    return false;
 }
 
 int Connection::OnRecv() {

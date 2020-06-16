@@ -79,9 +79,9 @@ public:
 
     // user data
     bool SetUserData(ConnectionId cid, void* ptr);
-    bool GetUserData(ConnectionId cid, void** ptr) const;
+    bool GetUserData(ConnectionId cid, void** ptr);
     bool SetExtendInfo(ConnectionId cid, uint64_t data);
-    bool GetExtendInfo(ConnectionId cid, uint64_t& data) const;
+    bool GetExtendInfo(ConnectionId cid, uint64_t& data);
 
 private:
 
@@ -89,12 +89,14 @@ private:
     uint32_t CheckConnectionId(ConnectionId cid) const;
     void Dispatch(struct TcpMessageNode* msg);
     void DeleteConnection(uint32_t index);
+    void RefreshTime(uint32_t index);
+    std::shared_ptr<Connection> GetConnection(uint32_t index);
 
 private:
 
     using TimeoutRecord = std::multimap<time_t, uint32_t>;
     using ConnectionData =
-        std::pair<Connection*, TimeoutRecord::iterator>;
+        std::pair<std::shared_ptr<Connection>, TimeoutRecord::iterator>;
 
     enum { RESERVED_CONNECTION_COUNT = 100 };
 

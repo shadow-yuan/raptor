@@ -136,7 +136,7 @@ void TcpServer::Shutdown(){
         for (auto& obj : _mgr) {
             if (obj.first) {
                 obj.first->Shutdown(false);
-                delete obj.first;
+                obj.first.reset();
             }
         }
         _mgr.clear();
@@ -160,15 +160,7 @@ void TcpServer::SetProtocol(IProtocol* proto) {
 }
 
 bool TcpServer::Send(ConnectionId cid, const void* buf, size_t len) {
-    uint32_t index = CheckConnectionId(cid);
-    if (index == InvalidIndex) {
-        return false;
-    }
-
-    if (_mgr[index].first) {
-        return _mgr[index].first->Send(buf, len);
-    }
-    return false;
+    return SendWithHeader(cid, nullptr, 0, buf, len);
 }
 
 bool TcpServer::SendWithHeader(ConnectionId cid,
@@ -178,8 +170,9 @@ bool TcpServer::SendWithHeader(ConnectionId cid,
         return false;
     }
 
-    if (_mgr[index].first) {
-        return _mgr[index].first->SendWithHeader(hdr, hdr_len, data, data_len);
+    auto con = GetConnection(index);
+    if (con) {
+        return con->SendWithHeader(hdr, hdr_len, data, data_len);
     }
     return false;
 }
@@ -190,9 +183,9 @@ bool TcpServer::CloseConnection(ConnectionId cid){
         return false;
     }
 
-    AutoMutex g(&_conn_mtx);
-    if (_mgr[index].first) {
-        _mgr[index].first->Shutdown(false);
+    auto con = GetConnection(index);
+    if (con) {
+        con->Shutdown(false);
         DeleteConnection(index);
     }
     return true;
@@ -228,7 +221,7 @@ void TcpServer::OnNewConnection(
 
     time_t deadline_second = Now() + _options.connection_timeout;
 
-    std::unique_ptr<Connection> conn (new Connection(this));
+    std::shared_ptr<Connection> conn = std::make_shared<Connection>(this);
     conn->Init(cid, sock, addr);
     conn->SetProtocol(_proto);
 
@@ -240,7 +233,7 @@ void TcpServer::OnNewConnection(
         conn->Shutdown(true);
         _free_index_list.push_back(index);
     } else {
-        _mgr[index].first = conn.release();
+        _mgr[index].first = conn;
         _mgr[index].second = _timeout_record_list.insert({deadline_second, index});
     }
 }
@@ -254,9 +247,9 @@ void TcpServer::OnErrorEvent(void* ptr, size_t ) {
         return;
     }
 
-    AutoMutex g(&_conn_mtx);
-    if (_mgr[index].first) {
-        _mgr[index].first->Shutdown(true);
+    auto con = GetConnection(index);
+    if (con) {
+        con->Shutdown(true);
         DeleteConnection(index);
     }
 }
@@ -269,16 +262,15 @@ void TcpServer::OnRecvEvent(void* ptr, size_t transferred_bytes) {
         return;
     }
 
-    AutoMutex g(&_conn_mtx);
-    if (!_mgr[index].first->OnRecvEvent(transferred_bytes)) {
-        log_error("tcpserver: Failed to post async recv");
-        _mgr[index].first->Shutdown(true);
-        DeleteConnection(index);
-    } else {
-        time_t deadline_seconds = Now() + _options.connection_timeout;
-        _timeout_record_list.erase(_mgr[index].second);
-        _mgr[index].second = _timeout_record_list.insert({deadline_seconds, index});
+    auto con = GetConnection(index);
+    if (!con) return;
+    if (con->OnRecvEvent(transferred_bytes)) {
+        RefreshTime(index);
+        return;
     }
+    con->Shutdown(true);
+    DeleteConnection(index);
+    log_error("tcpserver: Failed to post async recv");
 }
 
 void TcpServer::OnSendEvent(void* ptr, size_t transferred_bytes) {
@@ -289,22 +281,21 @@ void TcpServer::OnSendEvent(void* ptr, size_t transferred_bytes) {
         return;
     }
 
-    AutoMutex g(&_conn_mtx);
-    if (!_mgr[index].first->OnSendEvent(transferred_bytes)) {
-        log_error("tcpserver: Failed to post async send");
-        _mgr[index].first->Shutdown(true);
-        DeleteConnection(index);
-    } else {
-        time_t deadline_seconds = Now() + _options.connection_timeout;
-        _timeout_record_list.erase(_mgr[index].second);
-        _mgr[index].second = _timeout_record_list.insert({deadline_seconds, index});
+    auto con = GetConnection(index);
+    if (!con) return;
+    if (con->OnSendEvent(transferred_bytes)) {
+        RefreshTime(index);
+        return;
     }
+    con->Shutdown(true);
+    DeleteConnection(index);
+    log_error("tcpserver: Failed to post async send");
 }
 
 void TcpServer::OnCheckingEvent(time_t current) {
 
-    // At least 1s to check once
-    if (current - _last_timeout_time.Load() < 1) {
+    // At least 3s to check once
+    if (current - _last_timeout_time.Load() < 3) {
         return;
     }
     _last_timeout_time.Store(current);
@@ -322,7 +313,10 @@ void TcpServer::OnCheckingEvent(time_t current) {
         ++it;
 
         _mgr[index].first->Shutdown(true);
-        DeleteConnection(index);
+        _mgr[index].first.reset();
+        _timeout_record_list.erase(_mgr[index].second);
+        _mgr[index].second = _timeout_record_list.end();
+        _free_index_list.push_back(index);
     }
 }
 
@@ -357,11 +351,24 @@ void TcpServer::OnConnectionClosed(ConnectionId cid) {
 }
 
 void TcpServer::DeleteConnection(uint32_t index) {
-    delete _mgr[index].first;
-    _mgr[index].first = nullptr;
+    AutoMutex g(&_conn_mtx);
+    if (!_mgr[index].first) {
+        return;
+    }
+    _mgr[index].first.reset();
     _timeout_record_list.erase(_mgr[index].second);
     _mgr[index].second = _timeout_record_list.end();
     _free_index_list.push_back(index);
+}
+
+void TcpServer::RefreshTime(uint32_t index) {
+    AutoMutex g(&_conn_mtx);
+    if (!_mgr[index].first) {
+        return;
+    }
+    time_t deadline_seconds = Now() + _options.connection_timeout;
+    _timeout_record_list.erase(_mgr[index].second);
+    _mgr[index].second = _timeout_record_list.insert({deadline_seconds, index});
 }
 
 bool TcpServer::SetUserData(ConnectionId cid, void* ptr) {
@@ -370,21 +377,23 @@ bool TcpServer::SetUserData(ConnectionId cid, void* ptr) {
         return false;
     }
 
-    if (_mgr[index].first) {
-        _mgr[index].first->SetUserData(ptr);
+    auto con = GetConnection(index);
+    if (con) {
+        con->SetUserData(ptr);
         return true;
     }
     return false;
 }
 
-bool TcpServer::GetUserData(ConnectionId cid, void** ptr) const {
+bool TcpServer::GetUserData(ConnectionId cid, void** ptr) {
     uint32_t index = CheckConnectionId(cid);
     if (index == InvalidIndex) {
         return false;
     }
 
-    if (_mgr[index].first) {
-        _mgr[index].first->GetUserData(ptr);
+    auto con = GetConnection(index);
+    if (con) {
+        con->GetUserData(ptr);
         return true;
     }
     return false;
@@ -396,21 +405,23 @@ bool TcpServer::SetExtendInfo(ConnectionId cid, uint64_t data) {
         return false;
     }
 
-    if (_mgr[index].first) {
-        _mgr[index].first->SetExtendInfo(data);
+    auto con = GetConnection(index);
+    if (con) {
+        con->SetExtendInfo(data);
         return true;
     }
     return false;
 }
 
-bool TcpServer::GetExtendInfo(ConnectionId cid, uint64_t& data) const {
+bool TcpServer::GetExtendInfo(ConnectionId cid, uint64_t& data) {
     uint32_t index = CheckConnectionId(cid);
     if (index == InvalidIndex) {
         return false;
     }
 
-    if (_mgr[index].first) {
-        _mgr[index].first->GetExtendInfo(data);
+    auto con = GetConnection(index);
+    if (con) {
+        con->GetExtendInfo(data);
         return true;
     }
     return false;
@@ -471,6 +482,12 @@ void TcpServer::Dispatch(struct TcpMessageNode* msg) {
         log_error("unknow message type %d", static_cast<int>(msg->type));
         break;
     }
+}
+
+std::shared_ptr<Connection> TcpServer::GetConnection(uint32_t index) {
+    AutoMutex g(&_conn_mtx);
+    auto obj = _mgr[index].first;
+    return obj;
 }
 
 } // namespace raptor

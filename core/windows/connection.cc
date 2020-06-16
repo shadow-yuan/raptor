@@ -92,17 +92,16 @@ void Connection::Shutdown(bool notify) {
     _extend_ptr = 0;
 }
 
-bool Connection::Send(const void* data, size_t len) {
-    AutoMutex g(&_snd_mtx);
-    _snd_buffer.AddSlice(Slice(data, len));
-    return AsyncSend();
-}
-
 bool Connection::SendWithHeader(
         const void* hdr, size_t hdr_len, const void* data, size_t data_len) {
+    if (!IsOnline()) return false;
     AutoMutex g(&_snd_mtx);
-    _snd_buffer.AddSlice(Slice(hdr, hdr_len));
-    _snd_buffer.AddSlice(Slice(data, data_len));
+    if (hdr != nullptr && hdr_len > 0) {
+        _snd_buffer.AddSlice(Slice(hdr, hdr_len));
+    }
+    if (data != nullptr && data_len > 0) {
+        _snd_buffer.AddSlice(Slice(data, data_len));
+    }
     return AsyncSend();
 }
 
