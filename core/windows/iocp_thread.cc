@@ -17,6 +17,7 @@
  */
 
 #include "core/windows/iocp_thread.h"
+#include <string.h>
 #include "util/log.h"
 #include "util/time.h"
 
@@ -25,7 +26,9 @@ SendRecvThread::SendRecvThread(internal::IIocpReceiver* service)
     : _service(service)
     , _shutdown(true)
     , _rs_threads(0)
-    , _threads(nullptr) {}
+    , _threads(nullptr) {
+    memset(&_exit, 0, sizeof(_exit));
+}
 
 SendRecvThread::~SendRecvThread() {
     if (!_shutdown) {

@@ -32,8 +32,8 @@ Connection::Connection(internal::INotificationTransfer* service)
     , _cid(core::InvalidConnectionId)
     , _fd(INVALID_SOCKET) {
 
-    memset(&_send_overlapped, 0, sizeof(_send_overlapped));
-    memset(&_recv_overlapped, 0, sizeof(_recv_overlapped));
+    memset(&_send_overlapped.overlapped, 0, sizeof(_send_overlapped.overlapped));
+    memset(&_recv_overlapped.overlapped, 0, sizeof(_recv_overlapped.overlapped));
     _send_overlapped.event = IocpEventType::kSendEvent;
     _recv_overlapped.event = IocpEventType::kRecvEvent;
 

@@ -16,6 +16,7 @@
  *
  */
 #include "core/windows/tcp_client.h"
+#include <string.h>
 #include "core/socket_util.h"
 #include "core/windows/socket_setting.h"
 #include "util/log.h"
@@ -29,6 +30,9 @@ TcpClient::TcpClient(IClientReceiver* service)
     , _connectex(nullptr)
     , _fd(INVALID_SOCKET)
     , _event(WSA_INVALID_EVENT) {
+    memset(&_conncet_overlapped, 0, sizeof(_conncet_overlapped));
+    memset(&_send_overlapped, 0, sizeof(_send_overlapped));
+    memset(&_recv_overlapped, 0, sizeof(_recv_overlapped));
 }
 
 TcpClient::~TcpClient() {}

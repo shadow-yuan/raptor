@@ -64,6 +64,7 @@ TcpListener::TcpListener(internal::IAcceptor* service)
     _AcceptEx = NULL;
     _GetAcceptExSockAddrs = nullptr;
     _max_threads = 0;
+    memset(&_exit, 0, sizeof(_exit));
 }
 
 TcpListener::~TcpListener() {
