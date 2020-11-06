@@ -101,13 +101,14 @@ raptor_error TcpClient::GetConnectExIfNecessary(SOCKET s) {
 }
 
 raptor_error TcpClient::InternalConnect(const raptor_resolved_address* addr) {
-    raptor_error error;
     raptor_dualstack_mode mode;
     raptor_resolved_address local_address;
+    raptor_resolved_address mapped_addr;
     int status;
     BOOL ret;
 
-    error = raptor_create_socket(addr, &_fd, &mode);
+    raptor_error error = raptor_create_socket(addr, &mapped_addr, &_fd, &mode);
+
     if (error != RAPTOR_ERROR_NONE) {
         goto failure;
     }
@@ -134,7 +135,7 @@ raptor_error TcpClient::InternalConnect(const raptor_resolved_address* addr) {
     WSAEventSelect(_fd, _event, FD_CONNECT);
 
     ret = _connectex(_fd,
-                    (raptor_sockaddr*)&addr->addr, (int)addr->len,
+                    (raptor_sockaddr*)&mapped_addr.addr, (int)mapped_addr.len,
                     NULL, 0, NULL, &_conncet_overlapped);
 
     /* It wouldn't be unusual to get a success immediately. But we'll still get

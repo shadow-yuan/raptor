@@ -131,11 +131,12 @@ void TcpListener::Shutdown() {
 
 raptor_error TcpListener::AddListeningPort(const raptor_resolved_address* addr) {
     if (_shutdown) return RAPTOR_ERROR_FROM_STATIC_STRING("tcp listener is closed");
-
+    raptor_resolved_address mapped_addr;
     raptor_dualstack_mode mode;
     SOCKET listen_fd;
 
-    raptor_error e = raptor_create_socket(addr, &listen_fd, &mode);
+    raptor_error e = raptor_create_socket(addr, &mapped_addr, &listen_fd, &mode);
+
     if (e != RAPTOR_ERROR_NONE) {
         log_error("Failed to create socket: %s", e->ToString().c_str());
         return e;
@@ -150,7 +151,7 @@ raptor_error TcpListener::AddListeningPort(const raptor_resolved_address* addr) 
     }
 
     int port = 0;
-    e = raptor_tcp_server_prepare_socket(listen_fd, addr, &port, 1);
+    e = raptor_tcp_server_prepare_socket(listen_fd, &mapped_addr, &port, 1);
     if (e != RAPTOR_ERROR_NONE) {
         log_error("Failed to configure socket: %s", e->ToString().c_str());
         return e;
@@ -161,7 +162,7 @@ raptor_error TcpListener::AddListeningPort(const raptor_resolved_address* addr) 
     node->listen_fd = listen_fd;
     node->port = port;
     node->mode = mode;
-    node->addr = *addr;
+    node->addr = mapped_addr;
     if (!_iocp.add(node->listen_fd, node.get())) {
         RaptorMutexUnlock(&_mutex);
         return RAPTOR_ERROR_FROM_STATIC_STRING("Failed to bind iocp");
@@ -177,7 +178,7 @@ raptor_error TcpListener::AddListeningPort(const raptor_resolved_address* addr) 
     RaptorMutexUnlock(&_mutex);
 
     char* addr_string = nullptr;
-    raptor_sockaddr_to_string(&addr_string, addr, 0);
+    raptor_sockaddr_to_string(&addr_string, &mapped_addr, 0);
     log_debug("start listening on %s", addr_string? addr_string : std::to_string(node->port).c_str());
     Free(addr_string);
     return e;

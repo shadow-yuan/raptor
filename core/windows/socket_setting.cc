@@ -198,6 +198,7 @@ raptor_error raptor_create_dualstack_socket(
 
 raptor_error raptor_create_socket(
     const raptor_resolved_address* addr,
+    raptor_resolved_address* mapped_addr,
     SOCKET* newfd, raptor_dualstack_mode* dsmode) {
 
     raptor_resolved_address addr6_v4mapped;
@@ -213,6 +214,9 @@ raptor_error raptor_create_socket(
         raptor_sockaddr_make_wildcard6(port, &wildcard);
         addr = &wildcard;
     }
+
+    /* addr is v4 mapped to v6 or v6. */
+    memcpy(mapped_addr, addr, sizeof(*mapped_addr));
 
     return raptor_create_dualstack_socket(addr, SOCK_STREAM, static_cast<int>(IPPROTO_TCP), dsmode, newfd);
 }

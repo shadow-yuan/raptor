@@ -76,6 +76,7 @@ raptor_error raptor_create_dualstack_socket(
 
 raptor_error raptor_create_socket(
     const raptor_resolved_address* resolved_addr,
+    raptor_resolved_address* mapped_addr,
     SOCKET* newfd, raptor_dualstack_mode* dsmode);
 
 raptor_error raptor_tcp_prepare_socket(SOCKET sock);
