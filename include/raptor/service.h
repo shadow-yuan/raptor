@@ -27,7 +27,7 @@ class IProtocol;
 class IServerReceiver {
 public:
     virtual ~IServerReceiver() {}
-    virtual void OnConnected(ConnectionId cid) = 0;
+    virtual void OnConnected(ConnectionId cid, const char* peer) = 0;
     virtual void OnMessageReceived(ConnectionId cid, const void* s, size_t len) = 0;
     virtual void OnClosed(ConnectionId cid) = 0;
 };
@@ -47,6 +47,7 @@ public:
     virtual bool GetUserData(ConnectionId cid, void** data) = 0;
     virtual bool SetExtendInfo(ConnectionId cid, uint64_t info) = 0;
     virtual bool GetExtendInfo(ConnectionId cid, uint64_t* info) = 0;
+    virtual int  GetPeerString(ConnectionId cid, char* output, int len) = 0;
 };
 
 class IClientReceiver {

@@ -67,7 +67,7 @@ public:
 class INotificationTransfer {
 public:
     virtual ~INotificationTransfer() {}
-    virtual void OnConnectionArrived(ConnectionId cid, const raptor_resolved_address* addr) = 0;
+    virtual void OnConnectionArrived(ConnectionId cid, const Slice* addr) = 0;
     virtual void OnDataReceived(ConnectionId cid, const Slice* s) = 0;
     virtual void OnConnectionClosed(ConnectionId cid) = 0;
 };

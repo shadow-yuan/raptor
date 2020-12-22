@@ -51,6 +51,7 @@ public:
     void GetUserData(void** ptr) const;
     void SetExtendInfo(uint64_t data);
     void GetExtendInfo(uint64_t& data) const;
+    int GetPeerString(char* buf, int buf_size);
 
 private:
     // IOCP Event
@@ -82,6 +83,7 @@ private:
     OverLappedEx _recv_overlapped;
 
     raptor_resolved_address _addr;
+    Slice _addr_str;
 
     SliceBuffer _rcv_buffer;
     SliceBuffer _snd_buffer;

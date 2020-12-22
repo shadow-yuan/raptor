@@ -90,6 +90,8 @@ RAPTOR_API int raptor_server_get_extend_info(
 RAPTOR_API int raptor_server_close_connection(
                                 raptor_server_t* s, raptor_connection_t c);
 
+RAPTOR_API int raptor_server_get_peer_string(raptor_server_t* s, raptor_connection_t c, char* output, int size/* recommend >= 128*/ );
+
 RAPTOR_API void raptor_server_destroy(raptor_server_t* s);
 
 // ---- client ----

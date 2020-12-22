@@ -39,7 +39,7 @@ typedef struct {
 typedef raptor_options_t RaptorOptions;
 
 // server callback
-typedef void (*raptor_server_callback_connection_arrived)(raptor_connection_t c);
+typedef void (*raptor_server_callback_connection_arrived)(raptor_connection_t c, const char* peer);
 typedef void (*raptor_server_callback_connection_closed)(raptor_connection_t c);
 typedef void (*raptor_server_callback_message_received)(raptor_connection_t c, const void* buffer, size_t length);
 

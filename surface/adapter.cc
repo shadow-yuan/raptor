@@ -88,9 +88,9 @@ bool RaptorServerAdapter::CloseConnection(ConnectionId cid) {
     return _impl->CloseConnection(cid);
 }
 
-void RaptorServerAdapter::OnConnected(ConnectionId id) {
+void RaptorServerAdapter::OnConnected(ConnectionId id, const char* peer) {
     if (_on_arrived_cb) {
-        _on_arrived_cb(id);
+        _on_arrived_cb(id, peer);
     }
 }
 
@@ -137,6 +137,10 @@ bool RaptorServerAdapter::GetExtendInfo(ConnectionId id, uint64_t* info) {
     return r;
 }
 
+int RaptorServerAdapter::GetPeerString(ConnectionId cid, char* output, int len) {
+    if (!output || len <= 0) return -1;
+    return _impl->GetPeerString(cid, output, len);
+}
 // --------------------------------
 
 RaptorClientAdapter::RaptorClientAdapter()

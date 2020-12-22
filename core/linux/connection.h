@@ -52,6 +52,7 @@ public:
     void GetUserData(void** ptr) const;
     void SetExtendInfo(uint64_t data);
     void GetExtendInfo(uint64_t& data) const;
+    int GetPeerString(char* buf, int buf_size);
 
 private:
 
@@ -84,6 +85,7 @@ private:
     Mutex _snd_mutex;
 
     raptor_resolved_address _addr;
+    Slice _addr_str;
 
     uint64_t _user_data;
     void* _extend_ptr;

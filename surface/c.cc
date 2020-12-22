@@ -196,6 +196,13 @@ int raptor_server_close_connection(raptor_server_t* s, raptor_connection_t c) {
     return 0;
 }
 
+int raptor_server_get_peer_string(raptor_server_t* s, raptor_connection_t c, char* output, int size/* recommend >= 128*/ ) {
+    if (s) {
+        return s->server->GetPeerString(c, output, size);
+    }
+    return -1;
+}
+
 void raptor_server_destroy(raptor_server_t* s) {
     if (s) {
         delete s->server;

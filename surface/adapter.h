@@ -48,9 +48,10 @@ public:
     bool GetUserData(ConnectionId id, void** userdata) override;
     bool SetExtendInfo(ConnectionId id, uint64_t info) override;
     bool GetExtendInfo(ConnectionId id, uint64_t* info) override;
+    int  GetPeerString(ConnectionId cid, char* output, int len) override;
 
     // IServerReceiver impl
-	void OnConnected(ConnectionId id) override;
+	void OnConnected(ConnectionId id, const char* peer) override;
     void OnMessageReceived(ConnectionId id, const void* buff, size_t len) override;
     void OnClosed(ConnectionId id) override;
 

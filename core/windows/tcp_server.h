@@ -73,7 +73,7 @@ public:
     void OnCheckingEvent(time_t current) override;
 
     // internal::INotificationTransfer impl
-    void OnConnectionArrived(ConnectionId cid, const raptor_resolved_address* addr) override;
+    void OnConnectionArrived(ConnectionId cid, const Slice* addr) override;
     void OnDataReceived(ConnectionId cid, const Slice* s) override;
     void OnConnectionClosed(ConnectionId cid) override;
 
@@ -82,6 +82,7 @@ public:
     bool GetUserData(ConnectionId cid, void** ptr);
     bool SetExtendInfo(ConnectionId cid, uint64_t data);
     bool GetExtendInfo(ConnectionId cid, uint64_t& data);
+    int GetPeerString(ConnectionId cid, char* buf, int buf_len);
 
 private:
 

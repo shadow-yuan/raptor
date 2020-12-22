@@ -35,7 +35,7 @@ struct TcpMessageNode {
     MultiProducerSingleConsumerQueue::Node node;
     MessageType type;
     ConnectionId cid;
-    raptor_resolved_address addr;
+    Slice addr;
     Slice slice;
 };
 constexpr uint32_t InvalidIndex = static_cast<uint32_t>(-1);
@@ -318,7 +318,7 @@ void TcpServer::OnCheckingEvent(time_t current) {
 }
 
 // ServiceInterface implement
-void TcpServer::OnConnectionArrived(ConnectionId cid, const raptor_resolved_address* addr) {
+void TcpServer::OnConnectionArrived(ConnectionId cid, const Slice* addr) {
     TcpMessageNode* msg = new TcpMessageNode;
     msg->cid = cid;
     msg->addr = *addr;
@@ -373,7 +373,7 @@ void TcpServer::MessageQueueThread(void* ptr) {
 void TcpServer::Dispatch(struct TcpMessageNode* msg) {
     switch (msg->type) {
     case MessageType::kNewConnection:
-        _service->OnConnected(msg->cid);
+        _service->OnConnected(msg->cid, reinterpret_cast<const char*>(msg->addr.begin()));
         break;
     case MessageType::kRecvAMessage:
         _service->OnMessageReceived(msg->cid, msg->slice.begin(), msg->slice.size());
@@ -462,6 +462,19 @@ bool TcpServer::GetExtendInfo(ConnectionId cid, uint64_t& data) {
         return true;
     }
     return false;
+}
+
+int TcpServer::GetPeerString(ConnectionId cid, char* buf, int buf_len) {
+    uint32_t index = CheckConnectionId(cid);
+    if (index == InvalidIndex) {
+        return -1;
+    }
+
+    auto con = GetConnection(index);
+    if (con) {
+        return con->GetPeerString(buf, buf_len);
+    }
+    return -1;
 }
 
 uint32_t TcpServer::CheckConnectionId(ConnectionId cid) const {

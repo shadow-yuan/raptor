@@ -21,6 +21,7 @@
 #include "core/socket_util.h"
 #include "core/windows/socket_setting.h"
 #include "raptor/protocol.h"
+#include "util/alloc.h"
 #include "util/log.h"
 #include "util/useful.h"
 
@@ -57,7 +58,16 @@ void Connection::Init(ConnectionId cid, SOCKET sock, const raptor_resolved_addre
     for(size_t i = 0; i < DEFAULT_TEMP_SLICE_COUNT; i++) {
         _tmp_buffer[i] = MakeSliceByDefaultSize();
     }
-    _service->OnConnectionArrived(cid, &_addr);
+
+    char* output = nullptr;
+    int bytes = raptor_sockaddr_to_string(&output, &_addr, 1);
+    if (output && bytes > 0) {
+        _addr_str = Slice(output, static_cast<size_t>(bytes+1));
+    }
+    if (output) {
+        Free(output);
+    }
+    _service->OnConnectionArrived(cid, &_addr_str);
 }
 
 void Connection::SetProtocol(IProtocol* p) {
@@ -280,6 +290,22 @@ void Connection::SetExtendInfo(uint64_t data) {
 
 void Connection::GetExtendInfo(uint64_t& data) const {
     data = _user_data;
+}
+
+int Connection::GetPeerString(char* buf, int len) {
+    if (!IsOnline()) {
+        return -1;
+    }
+
+    int bytes = static_cast<int>(_addr_str.size());
+    if (len > 0 && bytes > 0) {
+        if (bytes > len) {
+            bytes = len;
+        }
+        memcpy(buf, _addr_str.begin(), bytes);
+        return bytes;
+    }
+    return 0;
 }
 
 } // namespace raptor

@@ -46,6 +46,7 @@ public:
     bool GetUserData(ConnectionId id, void** userdata) override;
     bool SetExtendInfo(ConnectionId id, uint64_t info) override;
     bool GetExtendInfo(ConnectionId id, uint64_t* info) override;
+    int  GetPeerString(ConnectionId cid, char* output, int len) override;
 
 private:
     TcpServer* _impl;

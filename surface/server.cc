@@ -116,6 +116,9 @@ bool Server::GetExtendInfo(ConnectionId id, uint64_t* info) {
     if (info) *info = data;
     return r;
 }
+int  Server::GetPeerString(ConnectionId cid, char* output, int len) {
+    return _impl->GetPeerString(cid, output, len);
+}
 } // namespace raptor
 
 raptor::ITcpServer* RaptorCreateServer(raptor::IServerReceiver* s) {
